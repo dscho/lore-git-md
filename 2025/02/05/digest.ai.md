@@ -1,0 +1,33 @@
+# Git Mailing List Digest — 2025/02/05
+
+**The day in brief.** A busy Wednesday with 76 emails across 23 threads saw significant progress on several fronts. The `--revision` clone option series reached final approval after extensive review, while the new `git backfill` command for blobless clones also got the green light. Junio's "What's cooking" report highlighted ongoing work across multiple areas, and discussions about configuration precedence in `pull` operations revealed philosophical divides about safety versus flexibility.
+
+## Notable threads
+
+### `--revision` clone option finalized
+
+After five iterations and extensive review, Toon Claes' series introducing a `--revision` option for `git clone` received final approval from Junio Hamano. The feature allows cloning specific refs without creating remote-tracking branches, with HEAD detached at the requested revision - particularly useful capability for CI workflows. The 7-patch series included significant refactoring of `builtin/clone.c` to prepare for the new functionality, with reviewers Patrick Steinhardt and Jean-Noël Avila providing final polish on documentation and error handling. The implementation includes comprehensive test coverage and handles edge cases like compatibility with `--depth` while preventing incompatible combinations with `--branch` or `--mirror`.
+
+### `git backfill` approved for merging
+
+Derrick Stolee's `git backfill` command for efficient blob backfilling in partial clones received its final technical approvals from both Patrick Steinhardt and Junio Hamano. The v3 series implements configurable batch sizes and robust sparse-checkout integration, with refinements including renamed parameters (`batch_size` → `min_batch_size`), expanded test coverage for non-cone sparse modes, and automatic sparse mode detection. Performance data from real-world testing (Git and Linux kernel repos) demonstrates optimal batch sizes between 5K-25K objects. The only remaining question - whether to mark the command as experimental - was deemed non-blocking, clearing the way for merging.
+
+### Pull precedence debate reveals philosophical divide
+
+A bugfix patch addressing `pull.ff=only` behavior with branch-specific rebase settings sparked a deeper discussion about Git's configuration philosophy. D. Ben Knoble's patch would allow branch-specific `rebase` settings to override global `pull.ff=only`, arguing this matches user intent for topic branches. Junio Hamano countered that `pull.ff=only` should remain a strict safety mechanism against non-fast-forward operations regardless of rebase preferences. The exchange highlighted tensions between workflow flexibility and safety guarantees, with Knoble later proposing a new `pull.merge=ff` option as a potential compromise that could maintain safety for merges while allowing rebase operations when explicitly configured.
+
+### Performance benchmarking discussion expands
+
+Emily Shaffer (Google) joined Patrick Steinhardt's thread about continuous Git performance monitoring, offering Google's perspective and potential contributions. She identified two concrete areas: exploring GCE-hosted benchmarking to avoid CI noise, and sharing performance data from Android's massive repositories (either anonymized or via AOSP). The discussion raised important questions about what repository characteristics would be most useful to track and suggested developing standardized test repositories representing different scaling challenges. Shaffer strongly endorsed the mailing list alert concept, particularly for regression notifications rather than routine success reports.
+
+### OS version capability implementation completed
+
+Usman Akinyemi's Outreachy project to include OS information in Git's protocol capabilities reached its final form after design discussions. The series settled on extending the existing `agent` capability string (e.g., "git/1.8.3.1 Linux") rather than introducing a separate `os-version` capability as initially proposed. The implementation includes privacy controls via a new `transfer.advertiseOSVersion` config option (defaulting to true) and handles platform-specific cases like Windows where `uname` output differs between CLI and syscall. Junio Hamano suggested potential simplifications to the privacy controls in final review, noting that users wanting full privacy likely want to hide all agent information, not just the OS portion.
+
+## In brief
+
+Olga Pilipenco's bugfix for worktree detection in bare repositories with secondary worktrees reached its final version, addressing an edge case where worktree-specific configs caused incorrect bare repo detection. Illia Bobyr proposed long option names (`--patch-modifies` and `--patch-grep`) for `git log -S` and `-G` functionality, though naming choices may still need discussion. A packed-refs validation series added NUL character detection in refnames, with debate focusing on implementation style (helper function vs inline). Andrew Carter's documentation of HTTPS client certificate configuration options (`http.sslCertType` and `http.sslKeyType`) was accepted after addressing formatting issues. Zejun Zhao submitted a platform compatibility patch addressing `-Wsign-comparison` warnings in `apply.c`, though Junio questioned whether comprehensive warning suppression justifies the code churn. A test fix addressed exit code masking in directory rename verification tests by replacing problematic pipe patterns with file redirection. Phillip Wood fixed an edge case in interactive rebase's reword operation for empty commits that were fast-forwarded during rebase. Documentation gaps were filled for the `http.uploadarchive` config option controlling archive operations over HTTP.
+
+## On the radar
+
+The philosophical debate about `pull.ff=only` versus branch-specific rebase settings remains unresolved, with D. Ben Knoble's proposal for a new `pull.merge=ff` option representing a potential path forward. The discussion touches on fundamental questions about how Git should balance safety mechanisms with workflow flexibility. Performance benchmarking infrastructure discussions continue gaining momentum, with Google's expressed interest in contributing resources and real-world data suggesting this could become a significant ongoing effort. The `-Wsign-comparison` warning suppression work in `apply.c` may need reconsideration after Junio's skepticism about whether the benefits outweigh the code churn.
