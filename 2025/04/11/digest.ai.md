@@ -1,0 +1,25 @@
+# Git Mailing List Digest — April 11, 2025
+
+**The day in brief.** A moderately active Friday with 51 emails across 17 threads saw several significant developments: Junio's "What's cooking" report marked multiple topics as ready for merging, Taylor Blau proposed a major optimization for cruft packs and MIDX interaction, and Patrick Steinhardt's object-file refactoring series reached final approval. The day also brought notable bug reports about `git stash -k` behavior and `git add` pathspec matching.
+
+## Notable threads
+
+**Cruft pack and MIDX optimization RFC**  
+Taylor Blau kicked off an 8-patch RFC series proposing changes to how Git handles cruft packs and MIDX during repacking. The core innovation is a new `--stdin-packs=follow` mode for `pack-objects` that creates reachability-closed packs, allowing cruft packs to be safely excluded from MIDX while maintaining correctness. The series begins with preparatory refactoring (standardizing option handling, improving code organization) before introducing the new mode in patch 6/8. The final patch implements the optimization by conditionally excluding cruft packs from MIDX when possible, reducing MIDX bloat and improving lookup performance. The changes touch core packing logic in `builtin/pack-objects.c` and `builtin/repack.c`, with comprehensive test coverage added.
+
+**Object-file subsystem refactoring finalized**  
+Patrick Steinhardt's major refactoring of Git's object-file subsystem reached completion with maintainer approval. The 9-patch series systematically reorganizes object storage code into logical subsystems: directory utilities moved to dir.c, mmap functions to wrapper.c, platform code to compat/open.c, index operations to read-cache.c, and object store management to the new object-store.c. Junio Hamano approved the relocation of directory utilities despite dir.c's traditional read-only focus, while Eric Sunshine later suggested path.[hc] might be a better home. The series removes global state for cached objects and merges object-store-ll.h into object-store.h, representing a significant architectural improvement in code organization.
+
+**Bug report: `git stash -k` with staged changes**  
+A bug report highlighted incorrect behavior in `git stash -k` when dealing with staged changes. The reporter demonstrated that when stashing with both staged and unstaged changes to the same file, Git creates a diff between HEAD and the unstaged changes rather than between the staged and unstaged changes as expected. D. Ben Knoble pointed to a 2023 discussion addressing the same issue, suggesting this is a long-standing behavior rather than a regression. The discrepancy appears to stem from how `wt-status.c` detects interrupted operations compared to the more nuanced logic in `git-prompt.sh`.
+
+**Bug report: `git add` pathspec matching**  
+Piotr Siupa reported unexpected behavior in `git add` when dealing with both literal and wildcard matches. When a repository contains a file literally named `f*` and another matching the wildcard pattern (like `foo`), the first `git add 'f*'` only stages the literal `f*` file, while subsequent runs correctly stage both. The issue appears in both Git 2.43.2 and current development versions, suggesting a longstanding pathspec matching quirk. The minimal reproduction case (fresh repo with just `foo` and `f*` files) makes the bug easy to verify, though no workaround is yet proposed.
+
+## In brief
+
+Junio's "What's cooking" report highlighted several ready-to-merge topics including Karthik Nayak's bundle deduplication optimization and meson build improvements. The `read-cache.c` static analysis fix received final confirmation, establishing a precedent for handling tool-driven defensive programming changes. A revision walker bugfix for `--left-only`/`--right-only` options was marked for 'next' after thorough review. The `safe.directory` thread saw confirmation of its security model regarding environment variable clearing during clone operations. Phillip Wood proposed a fix for incorrect state detection when `git am` is interrupted, moving the state file creation earlier in the process. Xavier Morel reported UX issues with `git clone --bundle-uri` lacking progress feedback during bundle processing.
+
+## On the radar
+
+The `--no-hooks` global option discussion continues with D. Ben Knoble sharing concrete npm/husky-related frustrations, though the implementation remains unchanged. The multi-remote synchronization thread saw alternative perspectives emerge about making the local repository the single source of truth rather than automated sync. Taylor Blau's cruft pack optimization RFC will likely generate significant discussion in coming days as reviewers examine its reachability closure approach. The `git stash -k` and `git add` pathspec matching bugs represent newly surfaced issues that may prompt fixes.
