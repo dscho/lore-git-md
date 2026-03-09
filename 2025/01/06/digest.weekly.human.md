@@ -1,0 +1,35 @@
+# Git Mailing List Digest — 2025/01/06 -- 2025/01/12
+
+## The week in brief
+
+A busy week with 437 emails across 141 threads saw significant progress toward Git 3.0 preparations, security hardening, and performance optimizations. Key developments include Patrick Steinhardt's breaking changes infrastructure for Git 3.0, comprehensive security fixes for `git blame`, and the introduction of zlib-ng support for performance gains. The week also saw the release of Git v2.48.0 and Git for Windows 2.48.0-rc2, along with ongoing discussions about credential security and platform compatibility.
+
+## Key developments
+
+### **Breaking changes infrastructure for Git 3.0**
+
+Patrick Steinhardt's series establishing patterns for handling breaking changes in Git 3.0 saw extensive discussion throughout the week. The patches introduce a `WITH_BREAKING_CHANGES` build option to gate removal of long-deprecated features like `.git/branches/` directories and the `pack-redundant` command. Junio Hamano provided important historical context about legacy remote configurations, influencing how these changes will be documented. The deprecation warning strategy evolved through debate, with Junio advocating for persistent warnings to ensure users don't ignore migration needs, while Patrick proposed temporary silencing via `GIT_ALLOW_DEPRECATED_REMOTES`. By week's end, the technical implementation appeared ready with consensus on warning prominence as Git 3.0 approaches.
+
+### **Security hardening across multiple fronts**
+
+Several security-related efforts made progress this week. Patrick Steinhardt's comprehensive fixes for `git blame` addressed three vulnerabilities: an out-of-bounds read with large `--abbrev` values, a buffer overflow in boundary commit handling, and pre-existing issues with blank spacing for UNINTERESTING commits. Jeff King proposed changing Git's default behavior for URL credentials from "allow" to "warn", building on earlier work to discourage plaintext credentials in remote URLs. M Hickford's documentation series explicitly warned against using `git-credential-cache` for personal access tokens, recommending persistent helpers instead. These efforts collectively represent significant security hardening as Git approaches its next major version.
+
+### **Performance optimizations and zlib-ng integration**
+
+An 8-part series introduced support for zlib-ng as an alternative zlib backend, showing ~25% speedup in object access operations. The changes create a clean abstraction layer through `compat/zlib-compat.h` while maintaining compatibility with standard zlib. The implementation includes symbol remapping for zlib-ng's prefixed API, removal of obsolete compatibility shims, and meson build options to select the backend. Taylor Blau raised important questions about Makefile support parity, which may require follow-up work. This optimization complements other performance work like Jeff King's combine-diff refactoring, which methodically improved memory management and code clarity across multiple files while maintaining backward compatibility.
+
+### **Remote object-info protocol implementation**
+
+Eric Ju's series implementing client-side support for remote object-info functionality reached completion this week. The final patches add `remote-object-info` support to `git cat-file --batch-command`, allowing efficient querying of object metadata (currently just sizes) from v2 protocol servers. The implementation includes comprehensive tests covering multiple transport protocols and error cases, building on earlier server-side work. Review feedback from Calvin Wan and Christian Couder was incorporated, addressing protocol version handling and error message clarity. This represents a significant step forward in Git's ability to query remote repositories without transferring full objects, particularly beneficial for large-scale operations.
+
+### **CI modernization and test reliability**
+
+Patrick Steinhardt's comprehensive CI overhaul progressed through multiple iterations, ultimately stabilizing tests (including a complex solution for flaky SIGPIPE tests in submodules) and standardizing containerized execution across GitHub Actions and GitLab CI. The series removes Azure Pipelines remnants, adds rootless container support and i386 testing, and updates Ubuntu versions. The submodule test reliability solution uses 2500 artificial submodules to force buffer saturation, demonstrating the project's commitment to robust testing infrastructure. These changes position Git's CI system for better reliability and maintainability as the codebase evolves.
+
+## In brief
+
+**Git v2.48.0 released** with 605 non-merge commits from 93 contributors, featuring new `remote.<name>.serverOption` configuration, enhanced `git rebase --rebase-merges` behavior, and continued `the_repository` removal progress. **Reftable entropy handling** sparked debate about platform support versus codebase purity when Randall Becker reported failures on ia64 systems. **Linux FSMonitor support** was revived with Alexander Shopov announcing plans to rebase and update patches from 2022/2024. **Symlinked submodule proposal** from Vadim Zeitlin would add configuration to disable path validation checks for trusted workflows. **Documentation standardization** continued with Jean-Noël Avila leading manpage conversions to consistent AsciiDoc synopsis style. **A regression in bare repositories** with multiple remotes was identified and fixed, where HEAD handling incorrectly treated all remotes as mirrors. **The hash algorithm refactoring** by brian m. carlson eliminated separate "unsafe" variants of hash operations through a new `unsafe_hash_algo()` function. **SMTP bearer authentication** implementation received positive testing feedback for Gmail compatibility. **OS version protocol capability** proposal from an Outreachy participant evolved toward a minimal initial implementation exposing basic system info. **Combine-diff cleanup** by Jeff King simplified code by inlining helpers while maintaining behavior. **`git-cherry` documentation debate** considered whether to reclassify it as porcelain given its workflow-oriented purpose.
+
+## Looking ahead
+
+The submodule path validation discussion remains open, with Junio Hamano and Vadim Zeitlin still debating configuration options to balance security and backward compatibility. The reftable entropy discussion may require architectural decisions about Git's RNG system as platform compatibility concerns persist. The zlib-ng integration will need follow-up work to ensure Makefile support parity with meson. Several security-related threads - particularly around credential handling and PAT detection - await clearer consensus on how to balance security hardening with Git's service-agnostic design. The Linux FSMonitor revival effort will likely see patches in coming weeks as Alexander Shopov completes the rebase work.
