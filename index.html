@@ -96,6 +96,7 @@
     const API   = 'https://api.github.com';
 
     let rootTreeSha = null;
+    const treeCache = {};
 
     const DIGEST_FILES = [
       'digest.human.md',
@@ -127,12 +128,18 @@
     var repoPrefix = '/repos/' + OWNER + '/' + REPO;
 
     // Reusable: get tree entries for any tree SHA (cache-first).
+    // When skipCache is true, bypasses the cache and does not store the result.
     // Returns an array of { path, type, sha } objects.
-    function getTreeEntries(treeSha) {
+    function getTreeEntries(treeSha, skipCache) {
+      if (!skipCache && treeCache[treeSha]) {
+        return Promise.resolve(treeCache[treeSha]);
+      }
       return apiGet(repoPrefix + '/git/trees/' + treeSha).then(function (text) {
-        return JSON.parse(text).tree.map(function (e) {
+        var entries = JSON.parse(text).tree.map(function (e) {
           return { path: e.path, type: e.type, sha: e.sha };
         }).reverse();
+        if (!skipCache) treeCache[treeSha] = entries;
+        return entries;
       });
     }
 
@@ -157,7 +164,8 @@
     }
 
     // Create a year node: expandable, loads months on click.
-    function createYearNode(entry) {
+    // When isLatest is true, the first (newest) month skips the cache.
+    function createYearNode(entry, isLatest) {
       const li = document.createElement('li');
       const span = document.createElement('span');
       span.textContent = entry.path;
@@ -172,8 +180,12 @@
         if (loaded) return;
         span.classList.add('loading');
         getTreeEntries(entry.sha).then(function (children) {
+          let first = true;
           children.forEach(function (child) {
-            if (child.type === 'tree') childUl.appendChild(createMonthNode(child));
+            if (child.type === 'tree') {
+              childUl.appendChild(createMonthNode(child, isLatest && first));
+              first = false;
+            }
           });
           loaded = true;
         }).catch(showError).finally(function () { span.classList.remove('loading'); });
@@ -183,7 +195,8 @@
 
     // Create a month node: expandable, loads days on click.
     // Monthly digest blobs become inline buttons on the month label.
-    function createMonthNode(entry) {
+    // When isLatest is true, every re-expand fetches fresh data.
+    function createMonthNode(entry, isLatest) {
       const li = document.createElement('li');
       const span = document.createElement('span');
       span.textContent = entry.path;
@@ -195,18 +208,21 @@
       span.addEventListener('click', function () {
         if (li.classList.contains('expanded')) { li.classList.remove('expanded'); return; }
         li.classList.add('expanded');
-        if (loaded) return;
+        if (!isLatest && loaded) return;
+        // For the latest month, clear stale children before re-fetching.
+        if (isLatest) {
+          childUl.innerHTML = '';
+          span.querySelectorAll('.digest-btn').forEach(function (b) { b.remove(); });
+        }
         span.classList.add('loading');
-        getTreeEntries(entry.sha).then(function (children) {
-          // Monthly digest blob → button on the month line itself
+        getTreeEntries(entry.sha, isLatest).then(function (children) {
           children.forEach(function (child) {
             if (child.type === 'blob' && child.path === 'digest.monthly.human.md') {
               span.appendChild(makeDigestBtn(child));
             }
           });
-          // Day subtrees → non-expandable items with lazily loaded buttons
           children.forEach(function (child) {
-            if (child.type === 'tree') childUl.appendChild(createDayNode(child));
+            if (child.type === 'tree') childUl.appendChild(createDayNode(child, isLatest));
           });
           loaded = true;
         }).catch(showError).finally(function () { span.classList.remove('loading'); });
@@ -216,14 +232,14 @@
 
     // Create a day node: NOT expandable. Immediately fetches its tree
     // in the background and adds digest buttons as they arrive.
-    function createDayNode(entry) {
+    function createDayNode(entry, skipCache) {
       const li = document.createElement('li');
       li.classList.add('leaf');
       const span = document.createElement('span');
       span.textContent = entry.path;
       li.appendChild(span);
 
-      getTreeEntries(entry.sha).then(function (children) {
+      getTreeEntries(entry.sha, skipCache).then(function (children) {
         let hasDigest = false;
         children.forEach(function (child) {
           if (child.type === 'blob' && DIGEST_FILES.indexOf(child.path) !== -1) {
@@ -258,8 +274,12 @@
         return getTreeEntries(sha);
       }).then(function (entries) {
         const tree = document.getElementById('tree');
+        let first = true;
         entries.forEach(function (entry) {
-          if (entry.type === 'tree') tree.appendChild(createYearNode(entry));
+          if (entry.type === 'tree') {
+            tree.appendChild(createYearNode(entry, first));
+            first = false;
+          }
         });
       }).catch(function (err) {
         document.getElementById('error').textContent = err.message;
