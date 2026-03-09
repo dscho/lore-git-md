@@ -82,6 +82,18 @@
 
     let rootTreeSha = null;
 
+    const DIGEST_FILES = [
+      'digest.human.md',
+      'digest.weekly.human.md',
+      'digest.monthly.human.md'
+    ];
+
+    const DIGEST_LABELS = {
+      'digest.human.md':          'Daily digest',
+      'digest.weekly.human.md':   'Weekly digest',
+      'digest.monthly.human.md':  'Monthly digest'
+    };
+
     // Low-level GitHub API GET returning a promise of the response text.
     function apiGet(path, accept) {
       return new Promise(function (resolve, reject) {
@@ -117,13 +129,16 @@
     }
 
     // Build a <li> for one tree entry and wire up expand/collapse.
+    // Blob entries that are not digest files are skipped (returns null).
     function createTreeNode(entry) {
+      if (entry.type === 'blob' && DIGEST_FILES.indexOf(entry.path) === -1) return null;
+
       const li = document.createElement('li');
       const span = document.createElement('span');
-      span.textContent = entry.path;
-      li.appendChild(span);
 
       if (entry.type === 'tree') {
+        span.textContent = entry.path;
+        li.appendChild(span);
         const childUl = document.createElement('ul');
         li.appendChild(childUl);
         let loaded = false;
@@ -138,7 +153,8 @@
           span.classList.add('loading');
           getTreeEntries(entry.sha).then(function (children) {
             children.forEach(function (child) {
-              childUl.appendChild(createTreeNode(child));
+              const node = createTreeNode(child);
+              if (node) childUl.appendChild(node);
             });
             loaded = true;
           }).catch(function (err) {
@@ -152,9 +168,11 @@
         });
       } else {
         li.classList.add('leaf');
+        span.textContent = DIGEST_LABELS[entry.path] || entry.path;
         span.addEventListener('click', function () {
-          loadBlob(entry.sha, entry.path);
+          loadBlob(entry.sha, span.textContent);
         });
+        li.appendChild(span);
       }
       return li;
     }
@@ -178,7 +196,8 @@
       }).then(function (entries) {
         const tree = document.getElementById('tree');
         entries.forEach(function (entry) {
-          tree.appendChild(createTreeNode(entry));
+          const node = createTreeNode(entry);
+          if (node) tree.appendChild(node);
         });
       }).catch(function (err) {
         document.getElementById('error').textContent = err.message;
