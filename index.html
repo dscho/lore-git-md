@@ -132,7 +132,7 @@
       return apiGet(repoPrefix + '/git/trees/' + treeSha).then(function (text) {
         return JSON.parse(text).tree.map(function (e) {
           return { path: e.path, type: e.type, sha: e.sha };
-        });
+        }).reverse();
       });
     }
 
