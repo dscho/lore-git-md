@@ -23,9 +23,9 @@
       display: flex; flex-direction: column;
     }
 
-    /* --- year drum roller --- */
-    #year-roller {
-      height: 8em; position: relative; overflow: hidden;
+    /* --- drum rollers --- */
+    .roller {
+      height: 9em; position: relative; overflow: hidden;
       text-align: center; flex-shrink: 0;
       border-bottom: 1px solid #5a3020;
       cursor: ns-resize;
@@ -38,36 +38,17 @@
       border-bottom: 1px solid rgba(240, 60, 46, 0.25);
       pointer-events: none;
     }
-    #roller-items {
+    .roller-items {
       position: absolute; left: 0; right: 0;
       transition: top 0.2s ease;
     }
     .roller-item {
       height: 1.8em; line-height: 1.8em;
+      display: flex; align-items: center; justify-content: center; gap: 0.3em;
       cursor: pointer; color: #ddd;
       transition: opacity 0.2s, transform 0.2s;
     }
     .roller-item.selected { font-weight: bold; color: #f03c2e; }
-
-    /* --- month/day tree below roller --- */
-    #month-tree {
-      flex: 1; overflow-y: auto; padding: 0.5em 0;
-    }
-    #sidebar ul { list-style: none; margin: 0; padding: 0; }
-    #sidebar li { user-select: none; }
-    #sidebar li > span {
-      display: block; padding: 0.2em 0.6em;
-      cursor: pointer; white-space: nowrap;
-    }
-    #sidebar li > span:hover { background: #2e2014; }
-    #sidebar li > span.loading { color: #999; font-style: italic; }
-    #sidebar li > ul { padding-left: 1.6em; display: none; }
-    #sidebar li.expanded > ul { display: block; }
-    #sidebar li > span::before {
-      content: '▸ '; color: #f03c2e; font-size: 0.8em;
-    }
-    #sidebar li.expanded > span::before { content: '▾ '; }
-    #sidebar li.leaf > span::before { content: '  '; }
 
     /* --- digest pill buttons --- */
     .digest-btn {
@@ -119,11 +100,18 @@
 </head>
 <body>
   <nav id="sidebar">
-    <div id="year-roller">
+    <div class="roller" id="year-roller">
       <div class="roller-highlight"></div>
-      <div id="roller-items"></div>
+      <div class="roller-items"></div>
     </div>
-    <ul id="month-tree"></ul>
+    <div class="roller" id="month-roller">
+      <div class="roller-highlight"></div>
+      <div class="roller-items"></div>
+    </div>
+    <div class="roller" id="day-roller">
+      <div class="roller-highlight"></div>
+      <div class="roller-items"></div>
+    </div>
   </nav>
   <div id="main">
     <div id="content">Select an entry from the tree.</div>
@@ -167,19 +155,18 @@
     var repoPrefix = '/repos/' + OWNER + '/' + REPO;
 
     // Reusable: get tree entries for any tree SHA (cache-first).
-    // When skipCache is true, bypasses the cache and does not store the result.
-    // Returns an array of { path, type, sha } objects.
+    // Caches the promise itself, so concurrent calls for the same SHA share one request.
     function getTreeEntries(treeSha, skipCache) {
       if (!skipCache && treeCache[treeSha]) {
-        return Promise.resolve(treeCache[treeSha]);
+        return treeCache[treeSha];
       }
-      return apiGet(repoPrefix + '/git/trees/' + treeSha).then(function (text) {
-        var entries = JSON.parse(text).tree.map(function (e) {
+      var p = apiGet(repoPrefix + '/git/trees/' + treeSha).then(function (text) {
+        return JSON.parse(text).tree.map(function (e) {
           return { path: e.path, type: e.type, sha: e.sha };
         }).reverse();
-        if (!skipCache) treeCache[treeSha] = entries;
-        return entries;
       });
+      if (!skipCache) treeCache[treeSha] = p;
+      return p;
     }
 
     // Resolve the default branch's root tree SHA.
@@ -202,122 +189,152 @@
       return btn;
     }
 
-    // --- year drum roller ---
-    let yearEntries = [];
-    let selectedYearIndex = 0;
-
-    function renderRoller() {
-      const container = document.getElementById('roller-items');
-      container.innerHTML = '';
-      yearEntries.forEach(function (entry, idx) {
-        const div = document.createElement('div');
-        div.className = 'roller-item';
-        div.textContent = entry.path;
-        const offset = Math.abs(idx - selectedYearIndex);
-        div.style.opacity = Math.max(0, 1 - offset * 0.3);
-        div.style.transform = 'scale(' + Math.max(0.6, 1 - offset * 0.12) + ')';
-        if (idx === selectedYearIndex) div.classList.add('selected');
-        div.addEventListener('click', function () {
-          selectedYearIndex = idx;
-          updateRoller();
-          loadSelectedYear();
-        });
-        container.appendChild(div);
-      });
-      positionRoller();
-    }
-
-    function updateRoller() {
-      const items = document.getElementById('roller-items').children;
-      for (let i = 0; i < items.length; i++) {
-        const offset = Math.abs(i - selectedYearIndex);
-        items[i].style.opacity = Math.max(0, 1 - offset * 0.3);
-        items[i].style.transform = 'scale(' + Math.max(0.6, 1 - offset * 0.12) + ')';
-        items[i].classList.toggle('selected', i === selectedYearIndex);
-      }
-      positionRoller();
-    }
-
-    function positionRoller() {
-      const container = document.getElementById('roller-items');
-      const topEm = 4 - selectedYearIndex * 1.8 - 0.9;
-      container.style.top = topEm + 'em';
-    }
-
-    function loadSelectedYear() {
-      const entry = yearEntries[selectedYearIndex];
-      const monthTree = document.getElementById('month-tree');
-      monthTree.innerHTML = '';
-      getTreeEntries(entry.sha).then(function (children) {
-        const isLatestYear = selectedYearIndex === 0;
-        let firstMonth = true;
-        children.forEach(function (child) {
-          if (child.type === 'tree') {
-            monthTree.appendChild(createMonthNode(child, isLatestYear && firstMonth));
-            firstMonth = false;
-          }
-        });
-      }).catch(showError);
-    }
-
-    // Create a month node: expandable, loads days on click.
-    // Monthly digest blobs become inline buttons on the month label.
-    // When isLatest is true, every re-expand fetches fresh data.
-    function createMonthNode(entry, isLatest) {
-      const li = document.createElement('li');
-      const span = document.createElement('span');
-      span.textContent = entry.path;
-      li.appendChild(span);
-      const childUl = document.createElement('ul');
-      li.appendChild(childUl);
-      let loaded = false;
-
-      span.addEventListener('click', function () {
-        if (li.classList.contains('expanded')) { li.classList.remove('expanded'); return; }
-        li.classList.add('expanded');
-        if (!isLatest && loaded) return;
-        // For the latest month, clear stale children before re-fetching.
-        if (isLatest) {
-          childUl.innerHTML = '';
-          span.querySelectorAll('.digest-btn').forEach(function (b) { b.remove(); });
+    // --- generic drum roller ---
+    function Roller(el) {
+      this.el = el;
+      this.itemsEl = el.querySelector('.roller-items');
+      this.entries = [];
+      this.selectedIndex = 0;
+      this.onSelect = null;
+      this.digestLoader = null;
+      this._wheelCooldown = false;
+      var self = this;
+      el.addEventListener('wheel', function (e) {
+        e.preventDefault();
+        if (self._wheelCooldown) return;
+        var idx = self.selectedIndex + (e.deltaY > 0 ? 1 : -1);
+        if (idx >= 0 && idx < self.entries.length) {
+          self.selectedIndex = idx;
+          self.refresh();
+          if (self.onSelect) self.onSelect(self.entries[idx], idx);
+          self._wheelCooldown = true;
+          setTimeout(function () { self._wheelCooldown = false; }, 150);
         }
-        span.classList.add('loading');
-        getTreeEntries(entry.sha, isLatest).then(function (children) {
-          children.forEach(function (child) {
-            if (child.type === 'blob' && child.path === 'digest.monthly.human.md') {
-              span.appendChild(makeDigestBtn(child));
-            }
-          });
-          children.forEach(function (child) {
-            if (child.type === 'tree') childUl.appendChild(createDayNode(child, isLatest));
-          });
-          loaded = true;
-        }).catch(showError).finally(function () { span.classList.remove('loading'); });
-      });
-      return li;
+      }, { passive: false });
     }
 
-    // Create a day node: NOT expandable. Immediately fetches its tree
-    // in the background and adds digest buttons as they arrive.
-    function createDayNode(entry, skipCache) {
-      const li = document.createElement('li');
-      li.classList.add('leaf');
-      const span = document.createElement('span');
-      span.textContent = entry.path;
-      li.appendChild(span);
+    Roller.prototype.setEntries = function (entries) {
+      this.entries = entries;
+      this.selectedIndex = 0;
+      this.render();
+      if (this.onSelect) this.onSelect(entries.length > 0 ? entries[0] : null, 0);
+    };
 
-      getTreeEntries(entry.sha, skipCache).then(function (children) {
-        let hasDigest = false;
-        children.forEach(function (child) {
-          if (child.type === 'blob' && DIGEST_FILES.indexOf(child.path) !== -1) {
-            span.appendChild(makeDigestBtn(child));
-            hasDigest = true;
-          }
+    Roller.prototype.render = function () {
+      var self = this;
+      this.itemsEl.innerHTML = '';
+      this.entries.forEach(function (entry, idx) {
+        var div = document.createElement('div');
+        div.className = 'roller-item';
+        var label = document.createElement('span');
+        label.textContent = entry.path;
+        div.appendChild(label);
+        div.addEventListener('click', function () {
+          self.selectedIndex = idx;
+          self.refresh();
+          if (self.onSelect) self.onSelect(self.entries[idx], idx);
         });
-        if (!hasDigest) li.style.display = 'none';
+        self.itemsEl.appendChild(div);
       });
-      return li;
+      this.refresh();
+    };
+
+    var FADE = [
+      { opacity: 1,    scale: 1 },
+      { opacity: 0.55, scale: 0.85 },
+      { opacity: 0.2,  scale: 0.65 }
+    ];
+
+    Roller.prototype.refresh = function () {
+      var items = this.itemsEl.children;
+      for (var i = 0; i < items.length; i++) {
+        var offset = Math.abs(i - this.selectedIndex);
+        var f = FADE[Math.min(offset, 2)];
+        var vis = offset <= 2 ? f.opacity : 0;
+        items[i].style.opacity = vis;
+        items[i].style.transform = 'scale(' + (offset <= 2 ? f.scale : 0.5) + ')';
+        items[i].classList.toggle('selected', i === this.selectedIndex);
+      }
+      this.itemsEl.style.top = (4.5 - this.selectedIndex * 1.8 - 0.9) + 'em';
+      this._loadVisibleDigests();
+    };
+
+    Roller.prototype.clear = function () {
+      this.entries = [];
+      this.selectedIndex = 0;
+      this.itemsEl.innerHTML = '';
+    };
+
+    // Load digests only for the 5 visible items (selected ±2).
+    Roller.prototype._loadVisibleDigests = function () {
+      if (!this.digestLoader) return;
+      var self = this;
+      var lo = Math.max(0, this.selectedIndex - 2);
+      var hi = Math.min(this.entries.length - 1, this.selectedIndex + 2);
+      for (var i = lo; i <= hi; i++) {
+        (function (idx) {
+          var item = self.itemsEl.children[idx];
+          if (!item || item._digestsLoaded) return;
+          item._digestsLoaded = true;
+          self.digestLoader(self.entries[idx]).then(function (digests) {
+            digests.forEach(function (d) { item.appendChild(makeDigestBtn(d)); });
+          });
+        })(i);
+      }
+    };
+
+    // --- roller instances and cascade ---
+    var yearRoller  = new Roller(document.getElementById('year-roller'));
+    var monthRoller = new Roller(document.getElementById('month-roller'));
+    var dayRoller   = new Roller(document.getElementById('day-roller'));
+
+    function makeMonthDigestLoader() {
+      return function (month) {
+        return getTreeEntries(month.sha).then(function (mc) {
+          return mc.filter(function (c) {
+            return c.type === 'blob' && c.path === 'digest.monthly.human.md';
+          });
+        });
+      };
     }
+
+    function makeDayDigestLoader(isLatest) {
+      return function (day) {
+        return getTreeEntries(day.sha, isLatest).then(function (dc) {
+          return dc.filter(function (c) {
+            return c.type === 'blob' && DIGEST_FILES.indexOf(c.path) !== -1;
+          });
+        });
+      };
+    }
+
+    function isLatestSelection() {
+      return yearRoller.selectedIndex === 0 && monthRoller.selectedIndex === 0;
+    }
+
+    yearRoller.onSelect = function (entry) {
+      monthRoller.clear();
+      dayRoller.clear();
+      if (!entry) return;
+      getTreeEntries(entry.sha).then(function (children) {
+        var months = children.filter(function (c) { return c.type === 'tree'; });
+        monthRoller.digestLoader = makeMonthDigestLoader();
+        monthRoller.setEntries(months);
+      }).catch(showError);
+    };
+
+    monthRoller.onSelect = function (entry) {
+      dayRoller.clear();
+      if (!entry) return;
+      var isLatest = isLatestSelection();
+      getTreeEntries(entry.sha, isLatest).then(function (children) {
+        var days = children.filter(function (c) { return c.type === 'tree'; });
+        dayRoller.digestLoader = makeDayDigestLoader(isLatest);
+        dayRoller.setEntries(days);
+      }).catch(showError);
+    };
+
+    dayRoller.onSelect = function () {};
 
     function showError(err) {
       document.getElementById('error').textContent = err.message;
@@ -340,20 +357,7 @@
         rootTreeSha = sha;
         return getTreeEntries(sha);
       }).then(function (entries) {
-        yearEntries = entries.filter(function (e) { return e.type === 'tree'; });
-        renderRoller();
-        loadSelectedYear();
-
-        document.getElementById('year-roller').addEventListener('wheel', function (e) {
-          e.preventDefault();
-          var delta = e.deltaY > 0 ? 1 : -1;
-          var idx = selectedYearIndex + delta;
-          if (idx >= 0 && idx < yearEntries.length) {
-            selectedYearIndex = idx;
-            updateRoller();
-            loadSelectedYear();
-          }
-        }, { passive: false });
+        yearRoller.setEntries(entries.filter(function (e) { return e.type === 'tree'; }));
       }).catch(function (err) {
         document.getElementById('error').textContent = err.message;
       });
