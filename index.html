@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitHub Markdown Viewer</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      max-width: 48em; margin: 2em auto; padding: 0 1em;
+      line-height: 1.6; color: #ddd; background: #1a1210;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      border: 1px solid #3a1a14; border-radius: 8px;
+      padding: 0.4em 0.7em; margin-top: 1.5em; color: #e2e2e2;
+    }
+    h1 { background: #2a1410; border-left: 4px solid #f03c2e; }
+    h2 { background: #241210; border-left: 4px solid #e8674a; }
+    h3 { background: #201210; border-left: 4px solid #d4896a; }
+    h4 { background: #1e1210; border-left: 4px solid #c4a080; }
+    h5 { background: #1c1210; border-left: 4px solid #b0a090; }
+    h6 { background: #1a1210; border-left: 4px solid #999; }
+    a { color: #e8674a; }
+    a:hover { color: #f03c2e; }
+    pre, code { font-family: Consolas, "Liberation Mono", Menlo, monospace; }
+    pre { background: #120c08; padding: 1em; overflow-x: auto; border-radius: 6px; }
+    code { background: #2a1a14; padding: 0.15em 0.3em; border-radius: 3px; }
+    pre code { background: none; padding: 0; }
+    blockquote { border-left: 4px solid #f03c2e; margin-left: 0; padding-left: 1em; color: #999; }
+    table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+    th, td { border: 1px solid #3a1a14; padding: 0.4em 0.8em; text-align: left; }
+    th { background: #2a1410; color: #f03c2e; }
+    tr:nth-child(even) { background: #1e1410; }
+    tr:hover { background: #2a1a14; }
+    hr { border: none; border-top: 1px solid #3a1a14; margin: 2em 0; }
+    #error { color: #f03c2e; }
+  </style>
+</head>
+<body>
+  <div id="content">Loading…</div>
+  <div id="error"></div>
+  <script>
+    const githubUrl = 'https://github.com/dscho/lore-git-md/blob/a99dc5f45f2535ab3ca29507b7d4978d1d544528/2025/01/25/digest.human.md';
+    const rawUrl = githubUrl
+      .replace('github.com', 'raw.githubusercontent.com')
+      .replace('/blob/', '/');
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', rawUrl);
+    xhr.onload = function () {
+      if (xhr.status === 200) {
+        document.getElementById('content').innerHTML = marked.parse(xhr.responseText);
+      } else {
+        document.getElementById('error').textContent = 'Failed to fetch: ' + xhr.status;
+      }
+    };
+    xhr.onerror = function () {
+      document.getElementById('error').textContent = 'Network error';
+    };
+    xhr.send();
+  </script>
+</body>
+</html>
