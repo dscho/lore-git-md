@@ -18,8 +18,40 @@
     #sidebar {
       width: 220px; min-width: 180px;
       background: #301810; border-right: 1px solid #5a3020;
-      overflow-y: auto; padding: 0.5em 0;
+      padding: 0;
       flex-shrink: 0;
+      display: flex; flex-direction: column;
+    }
+
+    /* --- year drum roller --- */
+    #year-roller {
+      height: 8em; position: relative; overflow: hidden;
+      text-align: center; flex-shrink: 0;
+      border-bottom: 1px solid #5a3020;
+      cursor: ns-resize;
+    }
+    .roller-highlight {
+      position: absolute; top: 50%; left: 0; right: 0;
+      height: 1.8em; transform: translateY(-50%);
+      background: rgba(240, 60, 46, 0.08);
+      border-top: 1px solid rgba(240, 60, 46, 0.25);
+      border-bottom: 1px solid rgba(240, 60, 46, 0.25);
+      pointer-events: none;
+    }
+    #roller-items {
+      position: absolute; left: 0; right: 0;
+      transition: top 0.2s ease;
+    }
+    .roller-item {
+      height: 1.8em; line-height: 1.8em;
+      cursor: pointer; color: #ddd;
+      transition: opacity 0.2s, transform 0.2s;
+    }
+    .roller-item.selected { font-weight: bold; color: #f03c2e; }
+
+    /* --- month/day tree below roller --- */
+    #month-tree {
+      flex: 1; overflow-y: auto; padding: 0.5em 0;
     }
     #sidebar ul { list-style: none; margin: 0; padding: 0; }
     #sidebar li { user-select: none; }
@@ -86,7 +118,13 @@
   </style>
 </head>
 <body>
-  <nav id="sidebar"><ul id="tree"></ul></nav>
+  <nav id="sidebar">
+    <div id="year-roller">
+      <div class="roller-highlight"></div>
+      <div id="roller-items"></div>
+    </div>
+    <ul id="month-tree"></ul>
+  </nav>
   <div id="main">
     <div id="content">Select an entry from the tree.</div>
     <div id="error"></div>
@@ -164,34 +202,62 @@
       return btn;
     }
 
-    // Create a year node: expandable, loads months on click.
-    // When isLatest is true, the first (newest) month skips the cache.
-    function createYearNode(entry, isLatest) {
-      const li = document.createElement('li');
-      const span = document.createElement('span');
-      span.textContent = entry.path;
-      li.appendChild(span);
-      const childUl = document.createElement('ul');
-      li.appendChild(childUl);
-      let loaded = false;
+    // --- year drum roller ---
+    let yearEntries = [];
+    let selectedYearIndex = 0;
 
-      span.addEventListener('click', function () {
-        if (li.classList.contains('expanded')) { li.classList.remove('expanded'); return; }
-        li.classList.add('expanded');
-        if (loaded) return;
-        span.classList.add('loading');
-        getTreeEntries(entry.sha).then(function (children) {
-          let first = true;
-          children.forEach(function (child) {
-            if (child.type === 'tree') {
-              childUl.appendChild(createMonthNode(child, isLatest && first));
-              first = false;
-            }
-          });
-          loaded = true;
-        }).catch(showError).finally(function () { span.classList.remove('loading'); });
+    function renderRoller() {
+      const container = document.getElementById('roller-items');
+      container.innerHTML = '';
+      yearEntries.forEach(function (entry, idx) {
+        const div = document.createElement('div');
+        div.className = 'roller-item';
+        div.textContent = entry.path;
+        const offset = Math.abs(idx - selectedYearIndex);
+        div.style.opacity = Math.max(0, 1 - offset * 0.3);
+        div.style.transform = 'scale(' + Math.max(0.6, 1 - offset * 0.12) + ')';
+        if (idx === selectedYearIndex) div.classList.add('selected');
+        div.addEventListener('click', function () {
+          selectedYearIndex = idx;
+          updateRoller();
+          loadSelectedYear();
+        });
+        container.appendChild(div);
       });
-      return li;
+      positionRoller();
+    }
+
+    function updateRoller() {
+      const items = document.getElementById('roller-items').children;
+      for (let i = 0; i < items.length; i++) {
+        const offset = Math.abs(i - selectedYearIndex);
+        items[i].style.opacity = Math.max(0, 1 - offset * 0.3);
+        items[i].style.transform = 'scale(' + Math.max(0.6, 1 - offset * 0.12) + ')';
+        items[i].classList.toggle('selected', i === selectedYearIndex);
+      }
+      positionRoller();
+    }
+
+    function positionRoller() {
+      const container = document.getElementById('roller-items');
+      const topEm = 4 - selectedYearIndex * 1.8 - 0.9;
+      container.style.top = topEm + 'em';
+    }
+
+    function loadSelectedYear() {
+      const entry = yearEntries[selectedYearIndex];
+      const monthTree = document.getElementById('month-tree');
+      monthTree.innerHTML = '';
+      getTreeEntries(entry.sha).then(function (children) {
+        const isLatestYear = selectedYearIndex === 0;
+        let firstMonth = true;
+        children.forEach(function (child) {
+          if (child.type === 'tree') {
+            monthTree.appendChild(createMonthNode(child, isLatestYear && firstMonth));
+            firstMonth = false;
+          }
+        });
+      }).catch(showError);
     }
 
     // Create a month node: expandable, loads days on click.
@@ -274,14 +340,20 @@
         rootTreeSha = sha;
         return getTreeEntries(sha);
       }).then(function (entries) {
-        const tree = document.getElementById('tree');
-        let first = true;
-        entries.forEach(function (entry) {
-          if (entry.type === 'tree') {
-            tree.appendChild(createYearNode(entry, first));
-            first = false;
+        yearEntries = entries.filter(function (e) { return e.type === 'tree'; });
+        renderRoller();
+        loadSelectedYear();
+
+        document.getElementById('year-roller').addEventListener('wheel', function (e) {
+          e.preventDefault();
+          var delta = e.deltaY > 0 ? 1 : -1;
+          var idx = selectedYearIndex + delta;
+          if (idx >= 0 && idx < yearEntries.length) {
+            selectedYearIndex = idx;
+            updateRoller();
+            loadSelectedYear();
           }
-        });
+        }, { passive: false });
       }).catch(function (err) {
         document.getElementById('error').textContent = err.message;
       });
