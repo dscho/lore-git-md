@@ -29,13 +29,28 @@
     }
     #sidebar li > span:hover { background: #2a1a14; }
     #sidebar li > span.loading { color: #999; font-style: italic; }
-    #sidebar li > ul { padding-left: 1em; display: none; }
+    #sidebar li > ul { padding-left: 1.6em; display: none; }
     #sidebar li.expanded > ul { display: block; }
     #sidebar li > span::before {
       content: '▸ '; color: #f03c2e; font-size: 0.8em;
     }
     #sidebar li.expanded > span::before { content: '▾ '; }
     #sidebar li.leaf > span::before { content: '  '; }
+
+    /* --- digest pill buttons --- */
+    .digest-btn {
+      display: inline-block; font-size: 0.65em; line-height: 1;
+      padding: 0.15em 0.45em; margin-left: 0.3em;
+      border-radius: 3px; border: 1px solid #f03c2e;
+      color: #f03c2e; background: transparent;
+      cursor: pointer; vertical-align: middle;
+      font-style: normal;
+    }
+    .digest-btn:hover { background: #f03c2e; color: #1a1210; }
+    .digest-btn.weekly { border-color: #e8674a; color: #e8674a; }
+    .digest-btn.weekly:hover { background: #e8674a; color: #1a1210; }
+    .digest-btn.monthly { border-color: #d4896a; color: #d4896a; }
+    .digest-btn.monthly:hover { background: #d4896a; color: #1a1210; }
 
     /* --- content pane --- */
     #main {
@@ -89,9 +104,9 @@
     ];
 
     const DIGEST_LABELS = {
-      'digest.human.md':          'Daily digest',
-      'digest.weekly.human.md':   'Weekly digest',
-      'digest.monthly.human.md':  'Monthly digest'
+      'digest.human.md':          'day',
+      'digest.weekly.human.md':   'week',
+      'digest.monthly.human.md':  'month'
     };
 
     // Low-level GitHub API GET returning a promise of the response text.
@@ -128,53 +143,101 @@
       });
     }
 
-    // Build a <li> for one tree entry and wire up expand/collapse.
-    // Blob entries that are not digest files are skipped (returns null).
-    function createTreeNode(entry) {
-      if (entry.type === 'blob' && DIGEST_FILES.indexOf(entry.path) === -1) return null;
+    function makeDigestBtn(blobEntry) {
+      const btn = document.createElement('button');
+      btn.className = 'digest-btn';
+      if (blobEntry.path === 'digest.weekly.human.md') btn.classList.add('weekly');
+      if (blobEntry.path === 'digest.monthly.human.md') btn.classList.add('monthly');
+      btn.textContent = DIGEST_LABELS[blobEntry.path];
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        loadBlob(blobEntry.sha, DIGEST_LABELS[blobEntry.path]);
+      });
+      return btn;
+    }
 
+    // Create a year node: expandable, loads months on click.
+    function createYearNode(entry) {
       const li = document.createElement('li');
       const span = document.createElement('span');
+      span.textContent = entry.path;
+      li.appendChild(span);
+      const childUl = document.createElement('ul');
+      li.appendChild(childUl);
+      let loaded = false;
 
-      if (entry.type === 'tree') {
-        span.textContent = entry.path;
-        li.appendChild(span);
-        const childUl = document.createElement('ul');
-        li.appendChild(childUl);
-        let loaded = false;
-
-        span.addEventListener('click', function () {
-          if (li.classList.contains('expanded')) {
-            li.classList.remove('expanded');
-            return;
-          }
-          li.classList.add('expanded');
-          if (loaded) return;
-          span.classList.add('loading');
-          getTreeEntries(entry.sha).then(function (children) {
-            children.forEach(function (child) {
-              const node = createTreeNode(child);
-              if (node) childUl.appendChild(node);
-            });
-            loaded = true;
-          }).catch(function (err) {
-            const errLi = document.createElement('li');
-            errLi.classList.add('leaf');
-            errLi.innerHTML = '<span style="color:#f03c2e">' + err.message + '</span>';
-            childUl.appendChild(errLi);
-          }).finally(function () {
-            span.classList.remove('loading');
+      span.addEventListener('click', function () {
+        if (li.classList.contains('expanded')) { li.classList.remove('expanded'); return; }
+        li.classList.add('expanded');
+        if (loaded) return;
+        span.classList.add('loading');
+        getTreeEntries(entry.sha).then(function (children) {
+          children.forEach(function (child) {
+            if (child.type === 'tree') childUl.appendChild(createMonthNode(child));
           });
-        });
-      } else {
-        li.classList.add('leaf');
-        span.textContent = DIGEST_LABELS[entry.path] || entry.path;
-        span.addEventListener('click', function () {
-          loadBlob(entry.sha, span.textContent);
-        });
-        li.appendChild(span);
-      }
+          loaded = true;
+        }).catch(showError).finally(function () { span.classList.remove('loading'); });
+      });
       return li;
+    }
+
+    // Create a month node: expandable, loads days on click.
+    // Monthly digest blobs become inline buttons on the month label.
+    function createMonthNode(entry) {
+      const li = document.createElement('li');
+      const span = document.createElement('span');
+      span.textContent = entry.path;
+      li.appendChild(span);
+      const childUl = document.createElement('ul');
+      li.appendChild(childUl);
+      let loaded = false;
+
+      span.addEventListener('click', function () {
+        if (li.classList.contains('expanded')) { li.classList.remove('expanded'); return; }
+        li.classList.add('expanded');
+        if (loaded) return;
+        span.classList.add('loading');
+        getTreeEntries(entry.sha).then(function (children) {
+          // Monthly digest blob → button on the month line itself
+          children.forEach(function (child) {
+            if (child.type === 'blob' && child.path === 'digest.monthly.human.md') {
+              span.appendChild(makeDigestBtn(child));
+            }
+          });
+          // Day subtrees → non-expandable items with lazily loaded buttons
+          children.forEach(function (child) {
+            if (child.type === 'tree') childUl.appendChild(createDayNode(child));
+          });
+          loaded = true;
+        }).catch(showError).finally(function () { span.classList.remove('loading'); });
+      });
+      return li;
+    }
+
+    // Create a day node: NOT expandable. Immediately fetches its tree
+    // in the background and adds digest buttons as they arrive.
+    function createDayNode(entry) {
+      const li = document.createElement('li');
+      li.classList.add('leaf');
+      const span = document.createElement('span');
+      span.textContent = entry.path;
+      li.appendChild(span);
+
+      getTreeEntries(entry.sha).then(function (children) {
+        let hasDigest = false;
+        children.forEach(function (child) {
+          if (child.type === 'blob' && DIGEST_FILES.indexOf(child.path) !== -1) {
+            span.appendChild(makeDigestBtn(child));
+            hasDigest = true;
+          }
+        });
+        if (!hasDigest) li.style.display = 'none';
+      });
+      return li;
+    }
+
+    function showError(err) {
+      document.getElementById('error').textContent = err.message;
     }
 
     // Load and render a blob as Markdown.
@@ -196,8 +259,7 @@
       }).then(function (entries) {
         const tree = document.getElementById('tree');
         entries.forEach(function (entry) {
-          const node = createTreeNode(entry);
-          if (node) tree.appendChild(node);
+          if (entry.type === 'tree') tree.appendChild(createYearNode(entry));
         });
       }).catch(function (err) {
         document.getElementById('error').textContent = err.message;
