@@ -199,6 +199,8 @@
       this.digestLoader = null;
       this._wheelCooldown = false;
       var self = this;
+
+      // Scrollwheel navigation.
       el.addEventListener('wheel', function (e) {
         e.preventDefault();
         if (self._wheelCooldown) return;
@@ -211,6 +213,39 @@
           setTimeout(function () { self._wheelCooldown = false; }, 150);
         }
       }, { passive: false });
+
+      // Touch drag navigation.
+      var touchStartY = null;
+      var ITEM_H = 28; // approx 1.8em in px; accumulate drag distance
+      var dragAccum = 0;
+
+      el.addEventListener('touchstart', function (e) {
+        touchStartY = e.touches[0].clientY;
+        dragAccum = 0;
+      }, { passive: true });
+
+      el.addEventListener('touchmove', function (e) {
+        if (touchStartY === null) return;
+        e.preventDefault();
+        var dy = touchStartY - e.touches[0].clientY;
+        dragAccum += dy;
+        touchStartY = e.touches[0].clientY;
+        while (Math.abs(dragAccum) >= ITEM_H) {
+          var delta = dragAccum > 0 ? 1 : -1;
+          var idx = self.selectedIndex + delta;
+          if (idx >= 0 && idx < self.entries.length) {
+            self.selectedIndex = idx;
+            self.refresh();
+            if (self.onSelect) self.onSelect(self.entries[idx], idx);
+          }
+          dragAccum -= delta * ITEM_H;
+        }
+      }, { passive: false });
+
+      el.addEventListener('touchend', function () {
+        touchStartY = null;
+        dragAccum = 0;
+      }, { passive: true });
     }
 
     Roller.prototype.setEntries = function (entries) {
