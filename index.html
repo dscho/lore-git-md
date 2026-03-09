@@ -3,14 +3,46 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GitHub Markdown Viewer</title>
+  <title>git digestif</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
+    * { box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      max-width: 48em; margin: 2em auto; padding: 0 1em;
+      margin: 0; padding: 0;
       line-height: 1.6; color: #ddd; background: #1a1210;
+      display: flex; height: 100vh;
     }
+
+    /* --- sidebar --- */
+    #sidebar {
+      width: 220px; min-width: 180px;
+      background: #140e0c; border-right: 1px solid #3a1a14;
+      overflow-y: auto; padding: 0.5em 0;
+      flex-shrink: 0;
+    }
+    #sidebar ul { list-style: none; margin: 0; padding: 0; }
+    #sidebar li { user-select: none; }
+    #sidebar li > span {
+      display: block; padding: 0.2em 0.6em;
+      cursor: pointer; white-space: nowrap;
+    }
+    #sidebar li > span:hover { background: #2a1a14; }
+    #sidebar li > span.loading { color: #999; font-style: italic; }
+    #sidebar li > ul { padding-left: 1em; display: none; }
+    #sidebar li.expanded > ul { display: block; }
+    #sidebar li > span::before {
+      content: '▸ '; color: #f03c2e; font-size: 0.8em;
+    }
+    #sidebar li.expanded > span::before { content: '▾ '; }
+    #sidebar li.leaf > span::before { content: '  '; }
+
+    /* --- content pane --- */
+    #main {
+      flex: 1; overflow-y: auto; padding: 2em;
+      max-width: 52em;
+    }
+    #content { }
     h1, h2, h3, h4, h5, h6 {
       border: 1px solid #3a1a14; border-radius: 8px;
       padding: 0.4em 0.7em; margin-top: 1.5em; color: #e2e2e2;
@@ -34,31 +66,124 @@
     tr:nth-child(even) { background: #1e1410; }
     tr:hover { background: #2a1a14; }
     hr { border: none; border-top: 1px solid #3a1a14; margin: 2em 0; }
-    #error { color: #f03c2e; }
+    #error { color: #f03c2e; padding: 1em; }
   </style>
 </head>
 <body>
-  <div id="content">Loading…</div>
-  <div id="error"></div>
+  <nav id="sidebar"><ul id="tree"></ul></nav>
+  <div id="main">
+    <div id="content">Select an entry from the tree.</div>
+    <div id="error"></div>
+  </div>
   <script>
-    const githubUrl = 'https://github.com/dscho/lore-git-md/blob/a99dc5f45f2535ab3ca29507b7d4978d1d544528/2025/01/25/digest.human.md';
-    const rawUrl = githubUrl
-      .replace('github.com', 'raw.githubusercontent.com')
-      .replace('/blob/', '/');
+    const OWNER = 'dscho';
+    const REPO  = 'lore-git-md';
+    const API   = 'https://api.github.com';
 
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', rawUrl);
-    xhr.onload = function () {
-      if (xhr.status === 200) {
-        document.getElementById('content').innerHTML = marked.parse(xhr.responseText);
+    let rootTreeSha = null;
+
+    // Low-level GitHub API GET returning a promise of the response text.
+    function apiGet(path, accept) {
+      return new Promise(function (resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', API + path);
+        xhr.setRequestHeader('Accept', accept || 'application/vnd.github+json');
+        xhr.onload = function () {
+          if (xhr.status === 200) resolve(xhr.responseText);
+          else reject(new Error('GitHub API ' + xhr.status + ': ' + xhr.responseText));
+        };
+        xhr.onerror = function () { reject(new Error('Network error')); };
+        xhr.send();
+      });
+    }
+
+    var repoPrefix = '/repos/' + OWNER + '/' + REPO;
+
+    // Reusable: get tree entries for any tree SHA (cache-first).
+    // Returns an array of { path, type, sha } objects.
+    function getTreeEntries(treeSha) {
+      return apiGet(repoPrefix + '/git/trees/' + treeSha).then(function (text) {
+        return JSON.parse(text).tree.map(function (e) {
+          return { path: e.path, type: e.type, sha: e.sha };
+        });
+      });
+    }
+
+    // Resolve the default branch's root tree SHA.
+    function fetchRootTree() {
+      return apiGet(repoPrefix + '/branches/main').then(function (text) {
+        return JSON.parse(text).commit.commit.tree.sha;
+      });
+    }
+
+    // Build a <li> for one tree entry and wire up expand/collapse.
+    function createTreeNode(entry) {
+      const li = document.createElement('li');
+      const span = document.createElement('span');
+      span.textContent = entry.path;
+      li.appendChild(span);
+
+      if (entry.type === 'tree') {
+        const childUl = document.createElement('ul');
+        li.appendChild(childUl);
+        let loaded = false;
+
+        span.addEventListener('click', function () {
+          if (li.classList.contains('expanded')) {
+            li.classList.remove('expanded');
+            return;
+          }
+          li.classList.add('expanded');
+          if (loaded) return;
+          span.classList.add('loading');
+          getTreeEntries(entry.sha).then(function (children) {
+            children.forEach(function (child) {
+              childUl.appendChild(createTreeNode(child));
+            });
+            loaded = true;
+          }).catch(function (err) {
+            const errLi = document.createElement('li');
+            errLi.classList.add('leaf');
+            errLi.innerHTML = '<span style="color:#f03c2e">' + err.message + '</span>';
+            childUl.appendChild(errLi);
+          }).finally(function () {
+            span.classList.remove('loading');
+          });
+        });
       } else {
-        document.getElementById('error').textContent = 'Failed to fetch: ' + xhr.status;
+        li.classList.add('leaf');
+        span.addEventListener('click', function () {
+          loadBlob(entry.sha, entry.path);
+        });
       }
-    };
-    xhr.onerror = function () {
-      document.getElementById('error').textContent = 'Network error';
-    };
-    xhr.send();
+      return li;
+    }
+
+    // Load and render a blob as Markdown.
+    function loadBlob(sha, name) {
+      const content = document.getElementById('content');
+      content.textContent = 'Loading ' + name + '…';
+      apiGet(repoPrefix + '/git/blobs/' + sha, 'application/vnd.github.raw+json').then(function (text) {
+        content.innerHTML = marked.parse(text);
+      }).catch(function (err) {
+        content.textContent = err.message;
+      });
+    }
+
+    // --- boot ---
+    (function init() {
+      fetchRootTree().then(function (sha) {
+        rootTreeSha = sha;
+        return getTreeEntries(sha);
+      }).then(function (entries) {
+        const tree = document.getElementById('tree');
+        entries.forEach(function (entry) {
+          tree.appendChild(createTreeNode(entry));
+        });
+      }).catch(function (err) {
+        document.getElementById('error').textContent = err.message;
+      });
+    })();
   </script>
 </body>
 </html>
