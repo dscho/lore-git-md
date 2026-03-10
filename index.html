@@ -140,6 +140,27 @@
     #nav-bar button:not(:disabled):hover { background: rgba(240, 60, 46, 0.1); }
 
     #error { color: #f03c2e; padding: 1em; }
+
+    /* --- responsive: narrow screens --- */
+    @media (max-width: 768px) {
+      body { flex-direction: column; height: auto; }
+      #sidebar {
+        width: auto; flex-direction: row;
+        border-right: none; border-bottom: 1px solid #5a3020;
+      }
+      .roller {
+        flex: 1; height: 7em;
+        border-bottom: none; border-right: 1px solid #5a3020;
+      }
+      .roller:last-child { border-right: none; }
+      .roller[data-label]::after {
+        writing-mode: horizontal-tb;
+        transform: translateX(-50%);
+        top: 0.3em; left: 50%;
+        letter-spacing: 0.1em;
+      }
+      #main { padding: 1em; }
+    }
   </style>
 </head>
 <body>
@@ -387,7 +408,9 @@
         items[i].style.transform = 'scale(' + (offset <= 2 ? f.scale : 0.5) + ')';
         items[i].classList.toggle('selected', i === this.selectedIndex);
       }
-      this.itemsEl.style.top = (4.5 - this.selectedIndex * 1.8 - 0.9) + 'em';
+      var center = this.el.offsetHeight / 2;
+      var emSize = parseFloat(getComputedStyle(this.el).fontSize) || 16;
+      this.itemsEl.style.top = (center / emSize - this.selectedIndex * 1.8 - 0.9) + 'em';
       this._loadVisibleDigests();
     };
 
