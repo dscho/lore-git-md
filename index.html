@@ -154,6 +154,7 @@
       'digest.monthly.human.md':  'month'
     };
 
+
     // Low-level GitHub API GET returning a promise of the response text.
     function apiGet(path, accept) {
       return new Promise(function (resolve, reject) {
@@ -171,7 +172,27 @@
 
     var repoPrefix = '/repos/' + OWNER + '/' + REPO;
 
-    // Reusable: get tree entries for any tree SHA (cache-first).
+
+    // Hash suffix ↔ filename mappings for short URLs.
+    // Daily: #2025/01/25, weekly: #2025/01/25/week, monthly: #2025/01
+    var HASH_SUFFIX = {
+      'digest.human.md':          '',
+      'digest.weekly.human.md':   '/week',
+      'digest.monthly.human.md':  ''
+    };
+
+    function parseHash(hash) {
+      var parts = hash.replace(/^#?\/?/, '').split('/');
+      if (parts[parts.length - 1] === 'week') {
+        return { pathParts: parts.slice(0, -1), file: 'digest.weekly.human.md' };
+      }
+      if (parts.length === 2) {
+        return { pathParts: parts, file: 'digest.monthly.human.md' };
+      }
+      return { pathParts: parts, file: 'digest.human.md' };
+    }
+
+    // Reusable: get tree entriesfor any tree SHA (cache-first).
     // Caches the promise itself, so concurrent calls for the same SHA share one request.
     function getTreeEntries(treeSha, skipCache) {
       if (!skipCache && treeCache[treeSha]) {
@@ -193,14 +214,16 @@
       });
     }
 
-    function makeDigestBtn(blobEntry) {
+    function makeDigestBtn(blobEntry, dirPath) {
       const btn = document.createElement('button');
       btn.className = 'digest-btn';
       if (blobEntry.path === 'digest.weekly.human.md') btn.classList.add('weekly');
       if (blobEntry.path === 'digest.monthly.human.md') btn.classList.add('monthly');
       btn.textContent = DIGEST_LABELS[blobEntry.path];
+      var hashPath = dirPath + HASH_SUFFIX[blobEntry.path];
       btn.addEventListener('click', function (e) {
         e.stopPropagation();
+        location.hash = hashPath;
         loadBlob(blobEntry.sha, DIGEST_LABELS[blobEntry.path]);
       });
       return btn;
@@ -328,11 +351,25 @@
           var item = self.itemsEl.children[idx];
           if (!item || item._digestsLoaded) return;
           item._digestsLoaded = true;
-          self.digestLoader(self.entries[idx]).then(function (digests) {
-            digests.forEach(function (d) { item.appendChild(makeDigestBtn(d)); });
+          self.digestLoader(self.entries[idx]).then(function (result) {
+            result.digests.forEach(function (d) {
+              item.appendChild(makeDigestBtn(d, result.dirPath));
+            });
           });
         })(i);
       }
+    };
+
+    // Select an entry by path without triggering onSelect.
+    Roller.prototype.selectByPath = function (path) {
+      for (var i = 0; i < this.entries.length; i++) {
+        if (this.entries[i].path === path) {
+          this.selectedIndex = i;
+          this.refresh();
+          return true;
+        }
+      }
+      return false;
     };
 
     // --- roller instances and cascade ---
@@ -340,22 +377,24 @@
     var monthRoller = new Roller(document.getElementById('month-roller'));
     var dayRoller   = new Roller(document.getElementById('day-roller'));
 
-    function makeMonthDigestLoader() {
+    function makeMonthDigestLoader(yearPath) {
       return function (month) {
+        var dirPath = yearPath + '/' + month.path;
         return getTreeEntries(month.sha).then(function (mc) {
-          return mc.filter(function (c) {
+          return { dirPath: dirPath, digests: mc.filter(function (c) {
             return c.type === 'blob' && c.path === 'digest.monthly.human.md';
-          });
+          }) };
         });
       };
     }
 
-    function makeDayDigestLoader(isLatest) {
+    function makeDayDigestLoader(yearPath, monthPath, isLatest) {
       return function (day) {
+        var dirPath = yearPath + '/' + monthPath + '/' + day.path;
         return getTreeEntries(day.sha, isLatest).then(function (dc) {
-          return dc.filter(function (c) {
+          return { dirPath: dirPath, digests: dc.filter(function (c) {
             return c.type === 'blob' && DIGEST_FILES.indexOf(c.path) !== -1;
-          });
+          }) };
         });
       };
     }
@@ -370,18 +409,19 @@
       if (!entry) return;
       getTreeEntries(entry.sha).then(function (children) {
         var months = children.filter(function (c) { return c.type === 'tree'; });
-        monthRoller.digestLoader = makeMonthDigestLoader();
+        monthRoller.digestLoader = makeMonthDigestLoader(entry.path);
         monthRoller.setEntries(months);
       }).catch(showError);
     };
 
-    monthRoller.onSelect = function (entry) {
+    monthRoller.onSelect = function (monthEntry) {
       dayRoller.clear();
-      if (!entry) return;
+      if (!monthEntry) return;
+      var yearPath = yearRoller.entries[yearRoller.selectedIndex].path;
       var isLatest = isLatestSelection();
-      getTreeEntries(entry.sha, isLatest).then(function (children) {
+      getTreeEntries(monthEntry.sha, isLatest).then(function (children) {
         var days = children.filter(function (c) { return c.type === 'tree'; });
-        dayRoller.digestLoader = makeDayDigestLoader(isLatest);
+        dayRoller.digestLoader = makeDayDigestLoader(yearPath, monthEntry.path, isLatest);
         dayRoller.setEntries(days);
       }).catch(showError);
     };
@@ -403,13 +443,69 @@
       });
     }
 
+    // Navigate to a short hash like "2025/01/25" or "2025/01/25/week"
+    // by walking the tree from the root, driving each roller to the
+    // right position, and loading the blob at the end.
+    function navigateToPath(path) {
+      var parsed = parseHash(path);
+      var parts = parsed.pathParts;
+      var file = parsed.file;
+      if (parts.length < 2) return;
+      var year = parts[0], month = parts[1], day = parts[2];
+
+      getTreeEntries(rootTreeSha).then(function (years) {
+        var yearEntries = years.filter(function (e) { return e.type === 'tree'; });
+        yearRoller.setEntries(yearEntries);
+        yearRoller.selectByPath(year);
+        var yearEntry = yearEntries.find(function (e) { return e.path === year; });
+        if (!yearEntry) return;
+
+        return getTreeEntries(yearEntry.sha).then(function (months) {
+          var monthEntries = months.filter(function (c) { return c.type === 'tree'; });
+          monthRoller.digestLoader = makeMonthDigestLoader(year);
+          monthRoller.setEntries(monthEntries);
+          monthRoller.selectByPath(month);
+          var monthEntry = monthEntries.find(function (e) { return e.path === month; });
+          if (!monthEntry) return;
+
+          var isLatest = isLatestSelection();
+          return getTreeEntries(monthEntry.sha, isLatest).then(function (children) {
+            var dayEntries = children.filter(function (c) { return c.type === 'tree'; });
+            dayRoller.digestLoader = makeDayDigestLoader(year, month, isLatest);
+            dayRoller.setEntries(dayEntries);
+
+            // Monthly digest: file is at month level, no day in path.
+            if (!day) {
+              var monthBlob = children.find(function (c) {
+                return c.type === 'blob' && c.path === file;
+              });
+              if (monthBlob) loadBlob(monthBlob.sha, DIGEST_LABELS[file]);
+              return;
+            }
+
+            dayRoller.selectByPath(day);
+            var dayEntry = dayEntries.find(function (e) { return e.path === day; });
+            if (!dayEntry) return;
+            return getTreeEntries(dayEntry.sha, isLatest).then(function (blobs) {
+              var blob = blobs.find(function (c) { return c.path === file; });
+              if (blob) loadBlob(blob.sha, DIGEST_LABELS[file]);
+            });
+          });
+        });
+      }).catch(showError);
+    }
+
     // --- boot ---
     (function init() {
       fetchRootTree().then(function (sha) {
         rootTreeSha = sha;
-        return getTreeEntries(sha);
-      }).then(function (entries) {
-        yearRoller.setEntries(entries.filter(function (e) { return e.type === 'tree'; }));
+        if (location.hash && location.hash.length > 1) {
+          navigateToPath(location.hash);
+        } else {
+          return getTreeEntries(sha).then(function (entries) {
+            yearRoller.setEntries(entries.filter(function (e) { return e.type === 'tree'; }));
+          });
+        }
       }).catch(function (err) {
         document.getElementById('error').textContent = err.message;
       });
