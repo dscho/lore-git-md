@@ -49,6 +49,20 @@
       transition: opacity 0.2s, transform 0.2s;
     }
     .roller-item.selected { font-weight: bold; color: #f03c2e; }
+    .roller[data-label]::after {
+      content: attr(data-label);
+      position: absolute; left: 0.25em; top: 50%;
+      transform: translateY(-50%) rotate(180deg);
+      writing-mode: vertical-rl;
+      font-size: 0.65em; line-height: 1;
+      letter-spacing: 0.15em; text-transform: uppercase;
+      color: rgba(240, 60, 46, 0.4);
+      background: rgba(28, 21, 16, 0.75);
+      border-radius: 0.5em;
+      padding: 0.5em 0.25em;
+      pointer-events: none;
+      z-index: 1;
+    }
 
     /* --- digest pill buttons --- */
     .digest-btn {
@@ -130,15 +144,15 @@
 </head>
 <body>
   <nav id="sidebar">
-    <div class="roller" id="year-roller">
+    <div class="roller" id="year-roller" data-label="Year">
       <div class="roller-highlight"></div>
       <div class="roller-items"></div>
     </div>
-    <div class="roller" id="month-roller">
+    <div class="roller" id="month-roller" data-label="Month">
       <div class="roller-highlight"></div>
       <div class="roller-items"></div>
     </div>
-    <div class="roller" id="day-roller">
+    <div class="roller" id="day-roller" data-label="Day">
       <div class="roller-highlight"></div>
       <div class="roller-items"></div>
     </div>
