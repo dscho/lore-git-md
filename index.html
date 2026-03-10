@@ -171,7 +171,6 @@
       'digest.monthly.human.md':  'month'
     };
 
-
     // Low-level GitHub API GET returning a promise of the response text.
     function apiGet(path, accept) {
       return new Promise(function (resolve, reject) {
@@ -189,8 +188,7 @@
 
     var repoPrefix = '/repos/' + OWNER + '/' + REPO;
 
-
-    // Hash suffix ↔ filename mappings for short URLs.
+    // Hash suffix↔ filename mappings for short URLs.
     // Daily: #2025/01/25, weekly: #2025/01/25/week, monthly: #2025/01
     var HASH_SUFFIX = {
       'digest.human.md':          '',
@@ -209,7 +207,7 @@
       return { pathParts: parts, file: 'digest.human.md' };
     }
 
-    // Reusable: get tree entriesfor any tree SHA (cache-first).
+    // Reusable: get tree entries for any tree SHA (cache-first).
     // Caches the promise itself, so concurrent calls for the same SHA share one request.
     function getTreeEntries(treeSha, skipCache) {
       if (!skipCache && treeCache[treeSha]) {
@@ -455,8 +453,78 @@
       content.textContent = 'Loading ' + name + '…';
       apiGet(repoPrefix + '/git/blobs/' + sha, 'application/vnd.github.raw+json').then(function (text) {
         content.innerHTML = marked.parse(text);
+        updateNavButtons();
       }).catch(function (err) {
         content.textContent = err.message;
+      });
+    }
+
+    // --- prev/next navigation ---
+    var prevBtn = document.getElementById('nav-prev');
+    var nextBtn = document.getElementById('nav-next');
+    var prevTarget = null;
+    var nextTarget = null;
+
+    prevBtn.addEventListener('click', function () {
+      if (prevTarget) {
+        location.hash = prevTarget;
+        navigateToPath(prevTarget);
+      }
+    });
+    nextBtn.addEventListener('click', function () {
+      if (nextTarget) {
+        location.hash = nextTarget;
+        navigateToPath(nextTarget);
+      }
+    });
+
+    function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+    // Check whether a digest blob exists at a tree path.
+    function probeDigest(pathParts, file) {
+      return (function walk(sha, depth) {
+        return getTreeEntries(sha).then(function (entries) {
+          if (depth < pathParts.length) {
+            var dir = entries.find(function (e) {
+              return e.path === pathParts[depth] && e.type === 'tree';
+            });
+            return dir ? walk(dir.sha, depth + 1) : null;
+          }
+          var blob = entries.find(function (e) { return e.path === file; });
+          return blob ? pathParts.join('/') + HASH_SUFFIX[file] : null;
+        });
+      })(rootTreeSha, 0);
+    }
+
+    // Compute the single adjacent date and probe for a digest there.
+    function adjacentDigest(hash, direction) {
+      var parsed = parseHash(hash);
+      var parts = parsed.pathParts;
+      var file = parsed.file;
+
+      if (file === 'digest.monthly.human.md') {
+        var dt = new Date(+parts[0], +parts[1] - 1 + direction, 1);
+        return probeDigest(['' + dt.getFullYear(), pad2(dt.getMonth() + 1)], file);
+      }
+
+      var step = file === 'digest.weekly.human.md' ? 7 * direction : direction;
+      var dt = new Date(+parts[0], +parts[1] - 1, +parts[2] + step);
+      return probeDigest(['' + dt.getFullYear(), pad2(dt.getMonth() + 1), pad2(dt.getDate())], file);
+    }
+
+    function updateNavButtons() {
+      prevBtn.disabled = true;
+      nextBtn.disabled = true;
+      prevTarget = null;
+      nextTarget = null;
+      var hash = location.hash;
+      if (!hash || hash.length < 2) return;
+
+      adjacentDigest(hash, -1).then(function (path) {
+        if (path) { prevTarget = path; prevBtn.disabled = false; }
+      });
+      adjacentDigest(hash, 1).then(function (path) {
+        if (path) { nextTarget = path; nextBtn.disabled = false; }
       });
     }
 
@@ -469,6 +537,13 @@
       var file = parsed.file;
       if (parts.length < 2) return;
       var year = parts[0], month = parts[1], day = parts[2];
+
+      // Suppress the automatic cascade during programmatic navigation;
+      // this function drives the rollers manually.
+      var savedYearSelect = yearRoller.onSelect;
+      var savedMonthSelect = monthRoller.onSelect;
+      yearRoller.onSelect = null;
+      monthRoller.onSelect = null;
 
       getTreeEntries(rootTreeSha).then(function (years) {
         var yearEntries = years.filter(function (e) { return e.type === 'tree'; });
@@ -509,7 +584,10 @@
             });
           });
         });
-      }).catch(showError);
+      }).catch(showError).then(function () {
+        yearRoller.onSelect = savedYearSelect;
+        monthRoller.onSelect = savedMonthSelect;
+      });
     }
 
     // --- boot ---
