@@ -269,23 +269,14 @@
         }
       }, { passive: false });
 
-      // Touch drag navigation.
-      var touchStartY = null;
-      var ITEM_H = 28; // approx 1.8em in px; accumulate drag distance
+      // Shared drag logic: accumulates pixel distance and steps through items.
+      var ITEM_H = 28; // approx 1.8em in px
       var dragAccum = 0;
-
-      el.addEventListener('touchstart', function (e) {
-        touchStartY = e.touches[0].clientY;
-        dragAccum = 0;
-      }, { passive: true });
-
-      el.addEventListener('touchmove', function (e) {
-        if (touchStartY === null) return;
-        e.preventDefault();
-        var dy = touchStartY - e.touches[0].clientY;
+      var dragged = false;
+      function applyDrag(dy) {
         dragAccum += dy;
-        touchStartY = e.touches[0].clientY;
         while (Math.abs(dragAccum) >= ITEM_H) {
+          dragged = true;
           var delta = dragAccum > 0 ? 1 : -1;
           var idx = self.selectedIndex + delta;
           if (idx >= 0 && idx < self.entries.length) {
@@ -295,12 +286,49 @@
           }
           dragAccum -= delta * ITEM_H;
         }
+      }
+
+      // Suppress click after a drag so item-click doesn't fire.
+      el.addEventListener('click', function (e) {
+        if (dragged) { e.stopPropagation(); dragged = false; }
+      }, true);
+
+      // Touch drag navigation.
+      var touchStartY = null;
+      el.addEventListener('touchstart', function (e) {
+        touchStartY = e.touches[0].clientY;
+        dragAccum = 0;
+      }, { passive: true });
+
+      el.addEventListener('touchmove', function (e) {
+        if (touchStartY === null) return;
+        e.preventDefault();
+        var dy = touchStartY - e.touches[0].clientY;
+        touchStartY = e.touches[0].clientY;
+        applyDrag(dy);
       }, { passive: false });
 
       el.addEventListener('touchend', function () {
         touchStartY = null;
         dragAccum = 0;
       }, { passive: true });
+
+      // Mouse drag navigation.
+      var mouseStartY = null;
+      el.addEventListener('mousedown', function (e) {
+        mouseStartY = e.clientY;
+        dragAccum = 0;
+        dragged = false;
+        e.preventDefault();
+      });
+      el.addEventListener('mousemove', function (e) {
+        if (mouseStartY === null) return;
+        var dy = mouseStartY - e.clientY;
+        mouseStartY = e.clientY;
+        applyDrag(dy);
+      });
+      el.addEventListener('mouseup', function () { mouseStartY = null; });
+      el.addEventListener('mouseleave', function () { mouseStartY = null; });
     }
 
     Roller.prototype.setEntries = function (entries) {
