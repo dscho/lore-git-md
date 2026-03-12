@@ -206,13 +206,21 @@
         xhr.getResponseHeader('X-RateLimit-Remaining') === '0';
     }
 
-    function showTokenPrompt() {
+    function isBadCredentials(xhr) {
+      if (xhr.status !== 401) return false;
+      try { return JSON.parse(xhr.responseText).message === 'Bad credentials'; }
+      catch (e) { return false; }
+    }
+
+    function showTokenPrompt(reason) {
       var el = document.getElementById('content');
       el.innerHTML = '';
       var box = document.createElement('div');
       box.id = 'token-prompt';
-      box.innerHTML =
-        '<p>The GitHub API rate limit has been exceeded for your IP address.</p>' +
+      var msg = reason === 'expired'
+        ? '<p>Your GitHub personal access token has expired or been revoked.</p>'
+        : '<p>The GitHub API rate limit has been exceeded for your IP address.</p>';
+      box.innerHTML = msg +
         '<p>To continue, create a <strong>fine-grained personal access token</strong> ' +
         '(no special permissions required) and paste it below:</p>' +
         '<p><a href="https://github.com/settings/personal-access-tokens/new" ' +
@@ -254,8 +262,13 @@
         if (ghToken) xhr.setRequestHeader('Authorization', 'Bearer ' + ghToken);
         xhr.onload = function () {
           if (xhr.status === 200) resolve(xhr.responseText);
+          else if (isBadCredentials(xhr)) {
+            ghToken = '';
+            showTokenPrompt('expired');
+            reject(new Error('Token expired or revoked'));
+          }
           else if (isRateLimited(xhr)) {
-            showTokenPrompt();
+            showTokenPrompt('rate-limited');
             reject(new Error('API rate limit exceeded'));
           }
           else reject(new Error('GitHub API ' + xhr.status + ': ' + xhr.responseText));
