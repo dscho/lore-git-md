@@ -146,6 +146,7 @@
     #token-prompt input { width: min(24em, 80%); padding: 0.4em; font-family: monospace; background: #1a1010; color: #eee; border: 1px solid #f03c2e66; border-radius: 4px; }
     #token-prompt button { padding: 0.4em 1em; margin-left: 0.5em; background: #f03c2e; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
     #token-prompt button:hover { background: #ff5040; }
+    #token-prompt label { display: block; margin-top: 0.4em; font-size: 0.9em; cursor: pointer; }
 
     /* --- responsive: narrow screens --- */
     @media (max-width: 768px) {
@@ -227,13 +228,17 @@
         'target="_blank" rel="noopener">Create a token on GitHub →</a></p>' +
         '<p><input id="token-input" type="password" placeholder="github_pat_..." />' +
         '<button id="token-save">Save</button></p>' +
-        '<p>The token is stored in your browser\'s localStorage and sent only to api.github.com.</p>';
+        '<p><label><input id="token-remember" type="checkbox" /> ' +
+        'Remember this token in my browser</label></p>' +
+        '<p>The token is sent only to api.github.com.</p>';
       el.appendChild(box);
       document.getElementById('token-save').addEventListener('click', function () {
         var val = document.getElementById('token-input').value.trim();
         if (!val) return;
         ghToken = val;
-        localStorage.setItem('gh-token', val);
+        if (document.getElementById('token-remember').checked) {
+          localStorage.setItem('gh-token', val);
+        }
         Object.keys(treeCache).forEach(function (k) { delete treeCache[k]; });
         rootTreeSha = null;
         document.getElementById('error').textContent = '';
@@ -264,6 +269,7 @@
           if (xhr.status === 200) resolve(xhr.responseText);
           else if (isBadCredentials(xhr)) {
             ghToken = '';
+            localStorage.removeItem('gh-token');
             showTokenPrompt('expired');
             reject(new Error('Token expired or revoked'));
           }
