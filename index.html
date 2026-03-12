@@ -575,12 +575,58 @@
       document.getElementById('error').textContent = err.message;
     }
 
+    // Known section headings that should be <h2> when rendered as
+    // bare <p><strong>…</strong></p> by marked.  Matching is
+    // case-insensitive and ignores trailing periods/colons.
+    var sectionHeadings = ['notable threads', 'in brief',
+      'the day in brief', 'on the radar', 'future directions',
+      'looking ahead', 'key developments'];
+
+    var monthNameRe = /\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b/i;
+    var titleLineRe = new RegExp(monthNameRe.source + '|\\bdigest\\b', 'i');
+
+    // Promote misformatted headings that the AI rendered as bold text
+    // instead of proper Markdown heading syntax.
+    function fixBoldHeadings(container) {
+      var paragraphs = container.querySelectorAll('p');
+      for (var i = 0; i < paragraphs.length; i++) {
+        var p = paragraphs[i];
+        if (p.childNodes.length !== 1 || !p.firstChild.tagName ||
+            p.firstChild.tagName !== 'STRONG') continue;
+        var text = p.textContent.replace(/[.:]+$/, '').trim().toLowerCase();
+
+        var tag;
+        if (sectionHeadings.indexOf(text) !== -1) {
+          tag = 'h2';
+        } else if (titleLineRe.test(text)) {
+          tag = 'h1';
+        }
+        if (tag) {
+          var h = document.createElement(tag);
+          h.textContent = p.textContent;
+          p.parentNode.replaceChild(h, p);
+        }
+      }
+
+      // Promote the very first <p> if it looks like a short date header
+      // written as plain text (e.g. "Here's the daily digest for …:").
+      var first = container.querySelector('p');
+      if (first && first.textContent.length < 80 &&
+          !container.querySelector('h1') &&
+          titleLineRe.test(first.textContent)) {
+        var h1 = document.createElement('h1');
+        h1.textContent = first.textContent;
+        first.parentNode.replaceChild(h1, first);
+      }
+    }
+
     // Load and render a blob as Markdown.
     function loadBlob(sha, name) {
       const content = document.getElementById('content');
       content.textContent = 'Loading ' + name + '…';
       apiGet(repoPrefix + '/git/blobs/' + sha, 'application/vnd.github.raw+json').then(function (text) {
         content.innerHTML = marked.parse(text);
+        fixBoldHeadings(content);
         updateNavButtons();
       }).catch(function (err) {
         content.textContent = err.message;
