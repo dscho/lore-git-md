@@ -1,0 +1,128 @@
+name: Daily digest
+
+run-name: Daily digest
+
+on:
+  schedule:
+    - cron: '15 */3 * * *'
+  workflow_dispatch:
+
+env:
+  LORE_GIT_URL: https://lore.kernel.org/git/1
+  TARGET_REPO: lore-git-md.git
+
+jobs:
+  digest:
+    if: github.repository == 'git-digestif/lore-git-md'
+    runs-on: ubuntu-latest
+    environment: digestive
+    permissions:
+      contents: write
+    steps:
+      - name: Install lore-git-md-helper
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh api repos/git-digestif/lore-git-md-helper/releases/latest --jq .tag_name)
+          gh release download "$tag" \
+            --repo git-digestif/lore-git-md-helper \
+            --pattern 'lore-git-md-helper-*-linux-x86_64.tar.gz'
+          tar xzf lore-git-md-helper-*-linux-x86_64.tar.gz
+          dir=$(ls -d lore-git-md-helper-*-linux-x86_64)
+          echo "$PWD/$dir" >> "$GITHUB_PATH"
+
+      - name: Clone target repo (bare, blobless, shallow)
+        run: |
+          git clone \
+            --bare \
+            --filter=blob:none \
+            --depth=10 \
+            --single-branch \
+            --branch main \
+            "https://github.com/${{ github.repository }}.git" \
+            "$TARGET_REPO"
+          git -C "$TARGET_REPO" fetch origin refs/notes/msgid:refs/notes/msgid
+
+      - name: Find last-processed source commit
+        id: check
+        run: |
+          last=$(cd "$TARGET_REPO" &&
+            git log --date-order \
+              --grep='Source-Commit: ' -1 \
+              --format=%B refs/heads/main |
+            sed -n 's/^Source-Commit: //p')
+
+          if test -z "$last"; then
+            echo "::error::No Source-Commit trailer found in target repo"
+            exit 1
+          fi
+
+          echo "Last source commit: $last"
+          echo "last=$last" >> "$GITHUB_OUTPUT"
+
+      - name: Check for new source emails
+        id: source
+        run: |
+          last="${{ steps.check.outputs.last }}"
+
+          # Quick check: does the remote have anything newer?
+          remote_head=$(git ls-remote "$LORE_GIT_URL" master | cut -f1)
+          if test "$remote_head" = "$last"; then
+            echo "No new emails"
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Clone lore-git source shallowly and deepen until we
+          # find the last-processed commit
+          git clone --bare --depth=50 --single-branch \
+            "$LORE_GIT_URL" lore-git-source.git
+
+          found=false
+          if git -C lore-git-source.git cat-file -t "$last" >/dev/null 2>&1; then
+            found=true
+          else
+            for depth in 200 1000 5000 20000; do
+              git -C lore-git-source.git fetch --depth=$depth origin master
+              if git -C lore-git-source.git cat-file -t "$last" >/dev/null 2>&1; then
+                found=true
+                break
+              fi
+            done
+          fi
+
+          if ! $found; then
+            echo "::error::Could not find Source-Commit $last in lore-git source after deepening to 20000"
+            exit 1
+          fi
+
+          count=$(git -C lore-git-source.git rev-list --count "$last..master")
+          echo "$count new email(s) to process"
+          echo "range=$last..master" >> "$GITHUB_OUTPUT"
+          echo "needed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Import new emails
+        if: steps.source.outputs.needed == 'true'
+        run: |
+          update-lore-git-md \
+            lore-git-source.git \
+            "$TARGET_REPO" \
+            "${{ steps.source.outputs.range }}"
+
+      - name: Run digestive pipeline
+        if: steps.source.outputs.needed == 'true'
+        env:
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+        run: |
+          digestive \
+            --azure-openai \
+            --target-repo "$TARGET_REPO"
+
+      - name: Push results
+        if: steps.source.outputs.needed == 'true'
+        run: |
+          cd "$TARGET_REPO"
+          git remote set-url origin \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          git push origin main refs/notes/msgid
