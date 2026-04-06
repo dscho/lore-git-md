@@ -117,6 +117,7 @@ jobs:
         run: |
           digestive \
             --azure-openai \
+            --since 2025/01/01 \
             --target-repo "$TARGET_REPO"
 
       - name: Push results
