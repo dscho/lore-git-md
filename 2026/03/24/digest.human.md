@@ -1,6 +1,6 @@
 # Git Mailing List Digest - 2026/03/24
 
-**The day in brief.** A busy Wednesday with 96 emails across 27 threads, featuring significant progress on several fronts. Key developments include the `git replay --revert` series reaching v5 with maintainer approval, parallel hooks configuration nearing completion, and multiple GSoC proposals entering final refinement. Junio Hamano's "What's cooking" report shows steady progress across the project, while test infrastructure robustness emerged as an unexpected focus of discussion.
+**The day in brief.** A busy Tuesday with 96 emails across 27 threads, featuring significant progress on several fronts. Key developments include the `git replay --revert` series reaching v5 with maintainer approval, parallel hooks configuration nearing completion, and multiple GSoC proposals entering final refinement. Junio Hamano's "What's cooking" report shows steady progress across the project, while test infrastructure robustness emerged as an unexpected focus of discussion.
 
 ## Notable threads
 

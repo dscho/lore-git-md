@@ -1,6 +1,6 @@
 # Git Mailing List Digest — 2025/01/28
 
-**The day in brief.** A busy Monday with 73 emails across 13 threads, dominated by two major technical efforts reaching completion: the Rust bindings infrastructure (v8 series) and reftable library decoupling (v2 series). Security considerations surfaced in both the promisor-remote URL handling and the ongoing sideband ANSI escape sequence vulnerability discussion with Red Hat. Build system conflicts emerged in the documentation format conversion work, while the zlib-ng performance optimization series received final approval.
+**The day in brief.** A busy Tuesday with 73 emails across 13 threads, dominated by two major technical efforts reaching completion: the Rust bindings infrastructure (v8 series) and reftable library decoupling (v2 series). Security considerations surfaced in both the promisor-remote URL handling and the ongoing sideband ANSI escape sequence vulnerability discussion with Red Hat. Build system conflicts emerged in the documentation format conversion work, while the zlib-ng performance optimization series received final approval.
 
 ## Notable threads
 

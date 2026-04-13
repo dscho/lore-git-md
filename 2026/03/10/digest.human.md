@@ -1,6 +1,6 @@
 # Git Mailing List Digest - 2026/03/10
 
-**The day in brief.** A busy Wednesday with 199 emails across 37 threads, featuring significant progress on multiple fronts. Key highlights include Patrick Steinhardt's performance optimizations for `git-upload-pack` being approved, the completion of several long-running series (submodule ignore behavior, cover letter formatting, and fast-import signature handling), and Junio's "What's cooking" report signaling upcoming merge plans. The day also saw active discussion around GSoC proposals and continued refinement of new contributors' work.
+**The day in brief.** A busy Tuesday with 199 emails across 37 threads, featuring significant progress on multiple fronts. Key highlights include Patrick Steinhardt's performance optimizations for `git-upload-pack` being approved, the completion of several long-running series (submodule ignore behavior, cover letter formatting, and fast-import signature handling), and Junio's "What's cooking" report signaling upcoming merge plans. The day also saw active discussion around GSoC proposals and continued refinement of new contributors' work.
 
 ## Notable threads
 

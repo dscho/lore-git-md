@@ -1,6 +1,6 @@
 # Git Mailing List Digest - 2025/08/16
 
-**The day in brief.** A moderately active Friday with 28 emails across 10 threads, featuring significant progress on the `git repo info` command series now in final polishing stage, a new submodule path encoding series addressing long-standing conflicts, and continued discussions around Rust platform compatibility. The standout items are the imminent merge of the repository metadata command and the comprehensive solution for submodule path handling.
+**The day in brief.** A moderately active Saturday with 28 emails across 10 threads, featuring significant progress on the `git repo info` command series now in final polishing stage, a new submodule path encoding series addressing long-standing conflicts, and continued discussions around Rust platform compatibility. The standout items are the imminent merge of the repository metadata command and the comprehensive solution for submodule path handling.
 
 ## Notable threads
 
