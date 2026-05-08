@@ -4,7 +4,7 @@ run-name: Daily digest
 
 on:
   schedule:
-    - cron: '15 */3 * * *'
+    - cron: '15 */1 * * *'
   workflow_dispatch:
 
 env:
