@@ -17,8 +17,43 @@ jobs:
     runs-on: ubuntu-latest
     environment: digestive
     permissions:
+      actions: write
       contents: write
     steps:
+      - name: Yield to older in-progress runs of this workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # An hourly cron schedule plus occasional multi-hour runs
+          # means a fresh scheduled run sometimes starts while an
+          # earlier one is still summarizing the backlog. The earlier
+          # run will push the same emails this one would, so doing
+          # the same work and then losing the push race wastes LLM
+          # credits and leaves a noisy red run in the history. If an
+          # older run of this workflow is still in_progress, cancel
+          # ourselves so the Actions UI shows an honest "Cancelled"
+          # marker instead of a misleadingly-green "Success".
+          older=$(gh api \
+            "/repos/${{ github.repository }}/actions/workflows/daily-digest.yml/runs?status=in_progress&per_page=100" \
+            --jq '[.workflow_runs[] | select(.id < ${{ github.run_id }})] | length')
+          if [ "$older" -eq 0 ]; then
+            echo "No older in-progress runs; proceeding." >&2
+            exit 0
+          fi
+          echo "An older in-progress run exists; cancelling self." >&2
+          gh run cancel ${{ github.run_id }}
+          # `gh run cancel` is async. Block until GitHub's cancellation
+          # signal kills this step. The exit 1 at the bottom is purely
+          # defensive: if the cancel never propagates (network, auth,
+          # API outage), failing loudly is better than silently
+          # proceeding with the wasted-work scenario this gate exists
+          # to prevent.
+          for _ in $(seq 1 60); do
+            sleep 10
+          done
+          echo "Cancellation did not propagate within 10 minutes; failing." >&2
+          exit 1
+
       - name: Install lore-git-md-helper
         env:
           GH_TOKEN: ${{ github.token }}
