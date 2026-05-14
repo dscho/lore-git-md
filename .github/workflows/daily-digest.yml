@@ -153,6 +153,7 @@ jobs:
           digestive \
             --azure-openai \
             --since 2025/01/01 \
+            --max-runtime 50m \
             --target-repo "$TARGET_REPO"
 
       - name: Push results
