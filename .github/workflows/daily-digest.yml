@@ -41,7 +41,7 @@ jobs:
             exit 0
           fi
           echo "An older in-progress run exists; cancelling self." >&2
-          gh run cancel ${{ github.run_id }}
+          gh run cancel ${{ github.run_id }} --repo ${{ github.repository }}
           # `gh run cancel` is async. Block until GitHub's cancellation
           # signal kills this step. The exit 1 at the bottom is purely
           # defensive: if the cancel never propagates (network, auth,
