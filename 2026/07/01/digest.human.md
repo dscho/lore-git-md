@@ -1,121 +1,129 @@
-# The Git Mailing List Daily Digest for 2026/07/01
+## The day in brief
 
-**The day in brief.** Wednesday, July 1, 2026 saw 134 emails across 29 threads. The day was **heavy on finalized feature work and post-merge follow-ups**, with several long-running series reaching resolution. The **`git history drop`** and **`git replay --linearize`** features were both accepted for merging after critical disputes were resolved, while **`git cat-file --batch-command` remote object metadata support** reached its 15th iteration with all prior feedback addressed. A **Coverity-driven cleanup series** dominated the "In brief" section, and **Git for Windows** issues continued to surface in platform-specific threads.
+**2026-07-01 was a heavy-traffic day with 134 emails across 29 threads.** The list was dominated by **final integration work**—patches landing, regressions being fixed, and long-running series reaching completion. The most consequential developments were:
+
+- **`git history drop`** (Patrick Steinhardt) **landed** after resolving a critical ref-resolution bug, adding a powerful new history-editing command.
+- **`git replay --linearize`** (Toon Claes) **merged to `master`**, but a **silent commit-dropping regression** was discovered post-merge, making this the day’s most urgent follow-up item.
+- **`git cat-file --batch-command` remote object metadata** (Pablo Sabater) **reached v15**, with all review feedback addressed and only minor documentation tweaks remaining.
+- **`git blame -b`** (René Scharfe) **fixed a usability friction** in hash abbreviation, aligning output with `core.abbrev`.
+- **`git history squash`** (Harald Nordgren) **finalized its template design** after a debate over UX vs. consistency with `git rebase -i`.
+- **`paint_down_to_common()` optimization** (Tian Yuchen/Kristofer Karlsson) **needs a rebase** to resolve a merge conflict with a related topic.
+- **`excludes_file` libification** (Tian Yuchen) **completed its three-phase guardrail migration**, clearing the last blocker for merging.
+- **Coverity-driven leak fixes** (Johannes Schindelin) **received mixed reviews**, with some patches needing revision.
+- **Reftable backend performance** saw a **major breakthrough**: Kristofer Karlsson’s patch reduced quadratic-time behavior in bulk ref operations from **14.93s to 0.145s** for 8,000 refs.
+
+The day’s texture was **technical and integrative**—less about new ideas, more about **polishing, fixing, and landing** work that had been in flight for weeks or months. The **`git replay --linearize` regression** stands out as the most pressing issue, while the **reftable performance fix** and **`git history drop` landing** are the most significant positive developments.
 
 ---
 
 ## Notable threads
 
-### `git cat-file --batch-command` remote object metadata support reaches v15
-**Pablo Sabater**’s GSoC project to add `remote-object-info` support to `git cat-file --batch-command` is now **ready for merging** after 15 iterations. The series allows clients to query object metadata (initially just size) from remote repositories without downloading full objects, using a new `remote-object-info` command that works with protocol v2 servers advertising the `object-info` capability.
-
-### Key improvements in v15:
-
-- Replaced `strtoul_szt()` with `strtoumax_szt()` for platform-independent `size_t` handling.
-- Added **dynamic capability-based format placeholder validation**, ensuring only supported atoms (e.g., `%(objectname)`, `%(objectsize)`) are accepted.
-- **Security hardening**: 10,000-object batch limit, strict protocol v2 enforcement, and silent continuation for unsupported fields (matching `for-each-ref` behavior).
-- **680 lines of new tests** in `t/t1017-cat-file-remote-object-info.sh`.
-
-**Critical issue resolved:** Junio Hamano identified a **refactoring flaw in patch 5/13** (uninitialized local variable and lingering global variable in `write_fetch_command_and_capabilities()`). The fix was straightforward: initialize the local variable to `0` and split the unrelated `hash_algo` type change into a separate patch.
-
-**Protocol extensibility consensus:** Pablo documented that future metadata features (e.g., `objecttype`) will be appended to the same space-separated list in the `object-info` capability value (e.g., `object-info=size type`). The series is **technically complete** and carries **Tested-by from Uwe Kleine-König**.
+### `git replay --linearize` regression (Toon Claes)
+**Headline:** Post-merge regression discovered: `--linearize` silently drops commits in single-branch replay.
+**What happened:** The v5 series was merged to `master` on 2026-07-15, but Johannes Schindelin identified a **critical bug**: when replaying a single branch with merge commits (e.g., `git replay --linearize master~2..master`), only the tip commit is replayed, and intermediate commits (including merges) are silently dropped. The root cause is a **base-selection logic error** in v5 that removed the `replayed_base` mechanism.
+**Where it stands:** Toon Claes **acknowledged the regression** and agreed with Schindelin’s design intent: `--linearize` should produce a **single linear sequence** regardless of input branches. The fix will require restoring the `replayed_base` logic or redesigning multi-branch handling. **Documentation must also be updated** to clarify the intended behavior.
+**Why it matters:** This is a **data-loss bug** in a newly merged feature. The regression must be fixed before the next release, and the incident highlights the need for **post-merge regression testing** in Git’s workflow.
 
 ---
 
-### `git history drop` subcommand accepted for merging
-**Patrick Steinhardt**’s 11-patch series introducing the `git history drop` subcommand was **accepted by Junio Hamano** after resolving a **critical ref resolution dispute** in v8. The command removes a commit from history and replays its descendants on top of its parent, with conflict detection, bare repository support, and preservation of local changes.
-
-### Key features:
-
-- **Conflict detection**: Aborts if replaying descendants would result in conflicts or overwrite local changes.
+### `git history drop` lands (Patrick Steinhardt)
+**Headline:** `git history drop` subcommand merged after resolving critical ref-resolution bug.
+**What happened:** The 11-patch v8 series, which adds a `drop` subcommand to `git history` to remove a commit and replay its descendants, **landed in `seen`** after Patrick Steinhardt fixed a **high-impact logical flaw** in `find_head_tree_change()`. The bug could have caused the command to skip index/worktree updates when HEAD moved, risking repository inconsistency.
+**Key features:**
+- **Conflict detection**: Aborts if replaying descendants would cause conflicts or overwrite local changes.
 - **Bare repository support**: Works in both bare and non-bare repositories.
 - **Ref updates**: Moves branches pointing to the dropped commit to its parent, with configurable scope via `--update-refs=(branches|head)`.
+- **Edge case handling**: Refuses to drop root commits, merge commits, or commits whose descendants contain merges (due to limitations in `git replay`).
 - **Dry-run mode**: Supports `--dry-run` to preview ref updates.
-- **561 lines of test coverage** in `t/t3454-history-drop.sh`.
-
-**Critical dispute resolved:** Junio identified a **logical flaw in v7** where `find_head_tree_change()` searched for symbolic branch names in `result->updates[]` while `compute_pending_ref_updates()` filtered the array to contain only `HEAD` under `--update-refs=head`. The v8 fix adds `RESOLVE_REF_READING` to `refs_resolve_ref_unsafe()`, ensuring it returns `NULL` when `HEAD` cannot be resolved.
-
-**Reset API modernization:** The series also modernizes the reset API, renaming `reset_head()` to `reset_working_tree()`, converting flags to an enum, adding dry-run mode, and making HEAD updates opt-in. The changes are **backward-compatible** and advance the `the_repository` removal effort.
+**Why it matters:** This is a **major addition to Git’s history-editing toolkit**, offering a more direct alternative to `git rebase -i` for removing commits. The series also advances **`the_repository` removal** and **reset API modernization** efforts.
 
 ---
 
-### `git replay --linearize` merged with post-merge issues identified
-**Toon Claes**’s series adding `--linearize` to `git replay` was **merged to `master`**, but **three critical issues** were identified post-merge:
-1. **Silent commit dropping regression** in single-branch replay with merge commits (Johannes Schindelin, **highest priority**).
-2. **CLI design inconsistency** with `git rebase` (Patrick Steinhardt, **strategic concern**).
-3. **Merge commit divergence handling** (Junio Hamano, Phillip Wood, **design limitation acknowledged**).
-
-**Root cause of regression:** v5’s base-selection logic **inadvertently removed the `replayed_base` mechanism**, causing only the tip commit to be replayed while intermediate commits (including merges) are lost. Johannes provided a test case (`master~2..master`) showing v5 replays only the tip commit directly onto `--onto`, dropping the "Git 2.55-rc2" commit entirely.
-
-**Design intent clarified:** Toon confirmed `--linearize` is intended to produce a **single linear sequence** regardless of input branches, even if this duplicates shared history. This aligns with Johannes’s preference for predictable behavior but diverges from `git rebase --no-rebase-merges`.
-
-### Follow-up required:
-
-- **Urgent patch** to restore `replayed_base` logic or redesign multi-branch handling.
-- **Documentation update** to clarify `--linearize` behavior.
-- **Test cases** to expose merge commit divergence behavior.
-- **CLI design decision**: Adopt `git rebase` syntax, diverge with clearer UX (e.g., `--replay-merges=<mode>`), or hybrid approach.
+### `git cat-file --batch-command` remote object metadata (Pablo Sabater)
+**Headline:** v15 of remote object metadata series ready for merging, with all review feedback addressed.
+**What happened:** Pablo Sabater’s GSoC project to add `remote-object-info` support to `git cat-file --batch-command` **reached v15**, incorporating all review feedback. The series allows clients to query object metadata (e.g., size) from remote repositories without downloading full objects, using a new `object-info` protocol v2 capability.
+**Key improvements in v15:**
+- **Dynamic format placeholder validation**: The client now filters requested atoms (e.g., `%(objectsize)`) against what the server advertises, preventing information leaks.
+- **Memory safety**: Fixed leaks and uninitialized variables, including a post-v14 security fix.
+- **Protocol extensibility**: Formalized the `object-info` capability format (e.g., `object-info=size type`) to support future metadata features.
+- **Transport layer integration**: Moved object-info logic to a dedicated vtable entry, removing redundant code.
+**Open question:** The **error handling philosophy** (silent continuation vs. explicit failure for missing metadata) remains unresolved, but Pablo has agreed to document the behavior clearly.
+**Why it matters:** This is a **security-hardened, high-impact feature** that addresses a real use case (querying object sizes without full downloads) while maintaining Git’s compatibility standards. The series is **ready for Junio’s final review**.
 
 ---
 
-### `git history squash` series converges on template design
-**Harald Nordgren**’s series adding a `squash` subcommand to `git history` reached consensus on the **commit-message template format** after Junio Hamano and Phillip Wood challenged the initial divergence from `git rebase -i`. The final design:
-- **Numbered list of commit subjects** (for context).
-- **Editable message body** with `squash!` bodies retained (separated by a blank line from their base commit’s message).
-- **`fixup!`/`amend!` messages omitted** to reduce visual clutter.
-
-**Key debate:** Phillip Wood successfully argued that `git history` is an **explicit UX experimentation space** and provided **concrete evidence of a usability problem with `git rebase -i`’s current template** (excessive commented-out lines forcing users to scroll past irrelevant noise). Junio’s challenge ("what is wrong with the current format?") was resolved by this evidence.
-
-### Open questions:
-
-- Should `--reedit-message` (or `--edit`) be the default? Phillip advocates for this as a **commit hygiene measure**.
-- **Recoverability concerns**: Matt Hunter and Phillip Wood noted that `git reset --hard` is insufficient to undo operations where `--update-refs` moves multiple branches, as Git’s reflog lacks visibility into which refs were affected. Phillip suggested **reflog transaction IDs** or a separate operations log as a potential solution.
+### Reftable backend performance breakthrough (Kristofer Karlsson)
+**Headline:** Quadratic-time behavior in bulk ref operations reduced from 14.93s to 0.145s.
+**What happened:** Kristofer Karlsson identified and fixed a **quadratic-time scalability issue** in the reftable backend during bulk ref deletion and re-creation (e.g., `git for-each-ref | git update-ref --stdin`). The root cause was the `merged_iter`’s `suppress_deletions` flag, which hid tombstones from bounds checks, forcing full scans even when early termination was possible. His patch exposes tombstones to iterator bounds logic, enabling early termination and reducing runtime from **O(n²) to O(n)**.
+**Benchmark results:**
+- 8,000 refs: **14.93s → 0.145s** (103x speedup)
+- 16,000 refs: **7.1s → 0.258s** (27x speedup)
+**Trade-off:** The fix adds tombstone-skipping loops at multiple call sites, which could clutter the code if not abstracted.
+**Why it matters:** This is a **major performance win** for large repositories, particularly those using the reftable backend. The fix addresses a long-standing scalability bottleneck and demonstrates the value of targeted optimizations in core subsystems.
 
 ---
 
-### Coverity-driven cleanup series dominates "In brief"
-**Johannes Schindelin**’s 13-patch series addressing Coverity-flagged resource leaks and error-path bugs was **queued by Junio Hamano** despite unresolved correctness concerns in two patches:
-1. **Patch 1/13**: Junio identified a **critical flaw** in the `errno`-based error detection, which may be clobbered by intervening function calls (`strbuf_release`, `insert_loose_map`). He recommended using `ferror(fp)` instead.
-2. **Patch 5/13**: Patrick Steinhardt pointed out that the `dpath` variable is initialized to `NULL` but never assigned a non-`NULL` value before the `free(dpath)` call, rendering the fix ineffective.
+### `git blame -b` usability fix (René Scharfe)
+**Headline:** `git blame -b` now aligns hash abbreviations with `core.abbrev`, eliminating manual truncation in workflows.
+**What happened:** René Scharfe fixed a usability friction in `git blame -b` (show boundary commits as blank) where the command reserved an extra hex digit for an unused caret marker, causing non-boundary commit hashes to exceed the user’s `core.abbrev` setting by one character. The fix refactors the mark-handling logic to count and print boundary/ignored/unblamable marks only when they are actually shown, ensuring the abbreviated commit hash length aligns with `core.abbrev`.
+**Why it matters:** This is a **small but impactful UX improvement** for users who manually paste hashes from `git blame -b` into `git rebase -i`. The fix eliminates a common annoyance without changing behavior or introducing new configuration.
 
-### Key fixes:
+---
 
-- **`bloom.c`**: Slab initialization leak (idempotent flag).
-- **`revision.c`**: Bloom-filter keyvec leak (explicit freeing).
-- **`line-log.c`**: Redundant range copy leak.
-- **`dir.c`**: Untracked-cache data leaks.
-- **Windows**: Process-handle leak and double-close bug.
+### `git history squash` template design finalized (Harald Nordgren)
+**Headline:** Template design for `git history squash` finalized after debate over UX vs. consistency with `git rebase -i`.
+**What happened:** Harald Nordgren’s `git history squash` subcommand, which folds a range of commits into one, **finalized its template design** after a debate over whether to prioritize UX clarity or consistency with `git rebase -i`. Phillip Wood argued for a cleaner template (omitting numbered markers and excessive separators), while Junio C Hamano initially pushed back, asking for evidence of problems with the existing `rebase -i` format. The discussion converged on a **minimalist design** that groups `fixup!`/`amend!`/`squash!` commits with their targets, uses minimal visual separation, and omits fully commented-out `fixup!` messages while retaining a summary list of subjects.
+**Why it matters:** This sets a precedent for **intentional divergence** from `git rebase -i` when UX clarity is at stake. The outcome suggests that future CLI changes may require **explicit justification** in commit messages for any divergence from established patterns.
 
-The series is **self-contained and uncontroversial** aside from the two patches, which will likely be addressed in follow-ups.
+---
+
+### `excludes_file` libification completes (Tian Yuchen)
+**Headline:** `excludes_file` libification completes three-phase guardrail migration, clearing last blocker for merging.
+**What happened:** Tian Yuchen’s series to move `excludes_file` into `struct repo_config_values` **completed its three-phase guardrail migration**, fulfilling Junio C Hamano’s requirement that **Phase 2 (adding a `BUG()` assertion) must be implemented before merging**. The final patch (v6) removed the defensive check in `repo_excludes_file()` entirely, as all unsafe callers had been addressed. The series is now **CI-clean and ready for integration**.
+**Why it matters:** This is a **foundational step in Git’s libification effort**, eliminating a global variable and paving the way for similar migrations (e.g., `attributes_file`). The three-phase approach (silent return → `BUG()` → no check) sets a pattern for future guardrail migrations.
+
+---
+
+### Coverity-driven leak fixes (Johannes Schindelin)
+**Headline:** Coverity-driven leak fixes receive mixed reviews; some patches need revision.
+**What happened:** Johannes Schindelin’s 13-patch series addressing Coverity-flagged resource leaks and error-path bugs **received mixed reviews**. While most patches were uncontroversial, two faced substantive feedback:
+1. **Patch 1/13**: Junio C Hamano identified a **correctness issue**—relying on `errno` to detect file-reading errors is unsafe because `errno` may be clobbered by intervening function calls. He suggested using `ferror(fp)` instead.
+2. **Patch 5/13**: Patrick Steinhardt pointed out that the fix for a leak in `run_diff_files()` **does not actually plug the leak**, as the `dpath` variable is initialized to `NULL` and never assigned a non-NULL value before being freed.
+**Why it matters:** The series is **high-value cleanup work**, but the feedback highlights the importance of **rigorous testing** for leak fixes. The issues must be addressed before merging, but the fixes are expected to be straightforward.
 
 ---
 
 ## In brief
 
-> **`git repo` GSoC project** -- K Jayatheerth’s weekly update (week 5) continues the research/design phase, with no on-list technical discussion or patches. The project remains in its initial phase, with updates communicated via external blog posts.
-
-> **`git cat-file --remote-object-info` GSoC project** -- Pablo Sabater’s weekly update (weeks 4–5) reports progress on extending `git cat-file --batch-command` with remote object metadata support. No technical details shared on-list.
-
-> **Reftable quadratic-time behavior fix** -- Kristofer Karlsson’s patch exposes tombstones to iterator bounds checks, reducing runtime from **O(n²) to O(n)** (e.g., 8,000 refs: 14.93s → 0.145s). The fix was **merged after Patrick Steinhardt’s review**, which acknowledged the trade-off of added code complexity at call sites.
-
-> **`excludes_file` migration into `repo_config_values`** -- Tian Yuchen’s series completed the **three-phase guardrail migration** (silent return → `BUG()` → no check) and was **merged into `next`**. The series eliminates the global `excludes_file` variable as part of the libification effort.
-
-> **`git blame -b` output formatting fix** -- René Scharfe’s patch removes the extra hex digit reserved for an unused caret marker, aligning abbreviated commit hashes with `core.abbrev`. The fix was **confirmed by the original reporter (Laszlo Ersek)** and is ready for merging.
-
-> **HTTP/HTTPS authentication regression in Git for Windows** -- A user reported that `http."<url>".allowNTLMAuth true` no longer works in Git for Windows 2.55.0.windows.1. Johannes Schindelin redirected the discussion to the Git for Windows issue tracker ([#6308](https://github.com/git-for-windows/git/issues/6308)).
-
-> **`git gui` encoding mismatch fix** -- A patch fixes `git gui` failures on Windows when the home directory contains non-ASCII characters (e.g., EntraID/AzureAD profiles). The fix replaces `safe_exec` with `safe_open_command -encoding utf-8` to match `cygpath`’s UTF-8 output.
-
-> **Meson build race fix** -- D. Ben Knoble’s patch restores `hook-list.h` to the `builtin_sources` list in `meson.build`, preventing a race condition that causes build failures when the header is missing.
-
-> **CI PID limits for private GitHub repositories** -- Johannes Schindelin’s patch adjusts Dockerized CI jobs in private repositories to use explicit process/file limits (`--pids-limit=16384`, `--ulimit=nproc=16384`, `--ulimit=nofile=32768`), preventing resource exhaustion.
-
-> **Bloom filter leak fixes** -- Jeff King’s 3-patch series plugs memory leaks in Bloom-filter code paths exposed by `GIT_TEST_COMMIT_GRAPH_CHANGED_PATHS=1`. The series was **endorsed by Junio Hamano** and is ready for merging.
+- **`git replay --linearize` regression** (Toon Claes) -- **Silent commit dropping** in single-branch replay; fix urgently needed.
+- **`git history drop` lands** (Patrick Steinhardt) -- New subcommand to remove a commit and replay its descendants; advances `the_repository` removal.
+- **`git cat-file --batch-command` remote object metadata** (Pablo Sabater) -- v15 ready for merging; all review feedback addressed.
+- **Reftable backend performance** (Kristofer Karlsson) -- **103x speedup** for bulk ref operations by fixing quadratic-time behavior.
+- **`git blame -b` usability fix** (René Scharfe) -- Aligns hash abbreviations with `core.abbrev`, eliminating manual truncation.
+- **`git history squash` template design** (Harald Nordgren) -- Finalized after debate over UX vs. consistency with `git rebase -i`.
+- **`excludes_file` libification** (Tian Yuchen) -- Completes three-phase guardrail migration; ready for merging.
+- **Coverity-driven leak fixes** (Johannes Schindelin) -- Mixed reviews; some patches need revision for correctness.
+- **`paint_down_to_common()` optimization** (Tian Yuchen/Kristofer Karlsson) -- Needs rebase to resolve merge conflict with related topic.
+- **`git rev-parse --parseopt` exit code fix** (brian m. carlson) -- Standardizes `--help`/`-h` exit codes across parse-options users; merged.
+- **`git repo` reorganization** (Patrick Steinhardt) -- RFC v3 addresses feedback; debate continues over `git log --follow` disruption.
+- **Rustification build system** (Shardul Natu) -- macOS credential helper now supports universal Rust builds.
+- **`git history` GSoC projects** (Pablo Sabater, K Jayatheerth) -- Progress updates; no patches yet.
+- **Sequencer dropped-commit fixes** (Phillip Wood) -- Merged; fixes notes and post-rewrite hook behavior for dropped commits.
+- **`git repo` discovery refactoring** (Patrick Steinhardt) -- Splits discovery and setup phases; needs review.
+- **Memory leak fixes** (Jeff King) -- Bloom filter, format-patch, and test harness leaks plugged; CI discussion ongoing.
+- **`git worktree add` leak fix** (Johannes Schindelin) -- Plugs memory leak when branch creation fails.
+- **`git blame` hash abbreviation fix** (René Scharfe) -- Aligns `git blame -b` output with `core.abbrev`.
+- **Git for Windows CI hang** (Johannes Schindelin) -- Apache `Timeout` increased to 600s; GitLab CI badge added.
+- **`git gui` encoding fix** (Martin Malec) -- Fixes non-ASCII home directory paths on Windows.
+- **Meson build fix** (Mike Gilbert) -- Restores `hook-list.h` dependency to prevent race condition.
 
 ---
 
 ## On the radar
-- **`git history` reorganization into `lib/` directory** -- Patrick Steinhardt’s RFC v3 series remains stalled due to **skepticism about the discoverability rationale** (Phillip Wood, Junio Hamano). The debate has shifted toward whether the structural benefits (e.g., enforcing coding conventions) justify the disruption.
-- **`git rebase` dropped-commit notes fix** -- Phillip Wood’s 11-patch series is **queued in Junio’s tree** but carries a **known limitation**: the "edit" command still erroneously records dropped commits as rewritten. A follow-up patch is expected.
-- **`git merge-base` optimization** -- Tian Yuchen’s series optimizing `paint_down_to_common()` for one-sided histories is **ready for merging** after a procedural rebase on `kk/commit-reach-find-all-fix`. The series delivers **100-1000x speedups** for asymmetric queries.
-- **`git format-patch` leak fix** -- Jeff King’s 2-patch series plugs a memory leak in `git format-patch --base` and improves test suite leak reporting. The series is **ready for merging** and includes a **CI infrastructure proposal** to consolidate leak-checking jobs.
+
+- **`git replay --linearize` regression** (Toon Claes) -- **Highest priority**; must be fixed before next release.
+- **`git history squash` default behavior** (Phillip Wood) -- Should `--reedit-message` be the default?
+- **Reftable backend performance** (Kristofer Karlsson) -- Follow-up on tombstone-skipping loops; code clarity vs. performance trade-off.
+- **`git repo` reorganization** (Patrick Steinhardt) -- Debate over `git log --follow` disruption; tooling incentives vs. workflow friction.
+- **`git history` recoverability** (Matt Hunter, Phillip Wood) -- Systemic critique of Git’s reflog design; potential for future tooling improvements.
+- **`git cat-file --batch-command` error handling** (Pablo Sabater) -- Silent continuation vs. explicit failure for missing metadata.
