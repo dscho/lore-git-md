@@ -1,57 +1,86 @@
-# The Git Project Mailing List Daily Digest
+Here’s the digest for **2026/07/03**, covering the Git mailing list’s daily traffic:
 
-**The day in brief.**
-July 3, 2026 (UTC) was a **heavy-traffic day** with 106 emails across 26 threads, dominated by **security hardening**, **test infrastructure improvements**, and **feature refinements**. The standout developments: Patrick Steinhardt’s **reftable security-hardening series (v3)** is now complete and ready for merging, while Jeff King’s **memory-leak fixes for non-default hash implementations** sparked a lively debate about API design. A **new `git history` signing feature** and **worktree-based config inclusion** also advanced, with the latter drawing substantive feedback about symlink handling.
+---
+
+# The day in brief
+**July 3, 2026** was a **heavy but focused** day on the Git mailing list, with **106 emails across 26 threads**. The standout themes were **security hardening** (reftable backend fixes), **test/CI reliability** (expensive test optimizations), and **feature refinements** (worktree config, commit signing). Two threads dominated: Patrick Steinhardt’s **12-patch reftable security series** (now at v3) and his **9-patch CI/test efficiency series** (v2), both nearing completion. A **new bugfix** for `--exclude-first-parent-only` emerged, and **Junio’s "What’s cooking"** report clarified the status of several in-flight topics.
 
 ---
 
 ## Notable threads
 
-### Reftable security hardening (v3) -- Patrick Steinhardt
-Patrick Steinhardt’s **12-patch series** systematically hardens Git’s reftable backend against maliciously corrupted files, addressing vulnerabilities like out-of-bounds reads/writes, NULL pointer dereferences, and uninitialized memory usage. The v3 update incorporates feedback from Toon Claes, making test cases stricter by dynamically calculating corruption values instead of hardcoding them. The series also introduces **fuzzing infrastructure** (libFuzzer + Meson support) to prevent regressions, a notable addition to Git’s CI tooling. Junio C Hamano and Christian Couder have acknowledged the test helper improvements, and the series is now **technically complete and ready for merging**. The hardening is comprehensive, though exploitation requires local disk access, and the fuzzer has run for 2+ hours without surfacing new issues.
+### Reftable security hardening (v3)
+**Subject**: [PATCH v3 0/12] reftable: security hardening against corrupted files
+**Author**: Patrick Steinhardt
+**Status**: **Ready for merging** after addressing all feedback.
 
-### Memory leaks in non-default hash implementations -- Jeff King
-Jeff King’s **9-patch series** plugs memory leaks in Git’s hash context (`git_hash_ctx`) when using non-default backends (OpenSSL SHA-256, libgcrypt). The leaks, invisible with Git’s default hash backends, were discovered via `SANITIZE=leak` and affect subsystems like `csum-file`, `patch-id`, and HTTP object requests. Patch 1/9 (removing a redundant `discard_hashfile()` function) received maintainer approval, but the series sparked a **substantive debate** about API design. Patrick Steinhardt and Brian M. Carlson advocated for making `git_hash_discard()` **idempotent**, citing Rust integration benefits and historical pain with non-idempotent APIs (e.g., reference transactions). Peff’s current implementation uses a flag-based approach to avoid double-discarding, but the discussion highlights a tension between pragmatism and long-term API hygiene. The series is **ready for review**, with the idempotency question deferred to a potential follow-up.
+Patrick’s **12-patch series** systematically hardens Git’s reftable backend against maliciously corrupted files, fixing vulnerabilities like out-of-bounds reads/writes, NULL pointer dereferences, and uninitialized memory usage. The v3 update added a stricter test for patch 7/12 (heap-buffer-overflow fix) and introduced **fuzzing infrastructure** (libFuzzer + Meson support) to prevent regressions. Junio and Christian Couder approved the test helper in patch 5/12, and Toon Claes’s substantive reviews on patches 6–7 were resolved. The series is now **technically complete**, with no open questions, and represents a significant step forward for the reftable backend’s robustness.
 
-### `GIT_TEST_LONG` tests: reliability and CI efficiency (v2) -- Patrick Steinhardt
-Patrick Steinhardt’s **9-patch v2 series** makes `GIT_TEST_LONG` tests reliable and efficient enough to run in CI, addressing broken or hanging tests in GitHub and GitLab pipelines. The series splits into three categories: **CI visibility** (adding a GitLab badge, enabling `GIT_TEST_LONG` in GitLab CI), **test correctness fixes** (skipping tests on unsupported platforms), and **efficiency improvements** (reducing disk/CPU usage). Patch 3/9, which refactors `t4141-apply-too-large.sh` to replace a slow `dd` loop with `genzeros`, drew feedback from SZEDER Gábor about retaining the `EXPENSIVE` prerequisite due to high memory usage (>1 GiB). Patrick conceded the point, restoring the label in v2. Junio C Hamano flagged minor wording nits in two patches, but the series is otherwise **uncontroversial and ready for integration**. The changes are mechanical and well-motivated, with clear commit messages explaining each fix.
+**Why it matters**: Reftable files aren’t stored remotely, but local corruption could still trigger crashes or undefined behavior. The fuzzing integration is a reusable framework for future hardening work.
 
-### `git history` signing support -- Souma
-Souma’s **3-patch series** teaches `git history` to sign rewritten commits via the `fixup`, `reword`, and `split` subcommands. The patches respect the `commit.gpgsign` configuration and the `-S/--gpg-sign`/`--no-gpg-sign` command-line options, with thorough test coverage for configuration-driven signing, command-line overrides, and descendant-commit replay. The implementation extends the commit-creation logic in `builtin/history.c` and `replay.c` to pass signing options through to the underlying commit machinery. The series is **well-scoped and technically sound**, with no prior discussion or objections in the thread. It aligns with Git’s existing signing infrastructure and would be a useful addition for users who want to ensure the integrity of rewritten history.
+---
 
-### `includeIf.worktree:<pattern>` (v6) -- Chen Linxuan
-Chen Linxuan’s **6-patch v6 series** introduces `includeIf.worktree:<pattern>` and `includeIf.worktree/i:<pattern>` conditions to Git’s config system, allowing conditional config inclusion based on the working tree’s realpath. The feature addresses a gap in multi-worktree setups, where `gitdir` patterns are cumbersome. The implementation reuses existing pattern-matching infrastructure and includes comprehensive test coverage for edge cases like symlinked paths and case sensitivity. Junio C Hamano endorsed the current approach but suggested consolidating documentation for the case-sensitive/insensitive variants in a follow-up. **Patrick Steinhardt raised a substantive issue**: the new `worktree` condition resolves symlinks to the real path, unlike `gitdir`, which matches both symlinked and real paths. This inconsistency could confuse users, and Patrick’s test case demonstrates the discrepancy. The series is otherwise **ready for merging**, but the symlink behavior should be resolved (either by aligning `worktree` with `gitdir` or documenting the divergence).
+### CI/test efficiency (v2)
+**Subject**: [PATCH v2 0/9] ci & test: make GIT_TEST_LONG tests reliable and efficient
+**Author**: Patrick Steinhardt
+**Status**: **Ready for merging** after addressing feedback.
+
+This **9-patch series** tackles two problems: broken `GIT_TEST_LONG` tests in CI and GitLab’s lack of coverage for expensive tests. Key changes include:
+- **Test correctness fixes**: Skipping `t0021` and `t7508` on platforms where they hang (64-bit and 32-bit, respectively).
+- **Efficiency improvements**: Reducing peak disk usage in `t5608` and `t7900` by deleting repositories immediately after use.
+- **CI alignment**: Enabling `GIT_TEST_LONG` in GitLab CI for integration branches (excluding Windows due to RAM limits).
+
+The v2 update restored the `EXPENSIVE` prerequisite in `t4141` after SZEDER Gábor noted its high memory usage (>1 GiB), despite the runtime now being negligible. Jeff King (Peff) endorsed the disk-usage improvements, and Junio flagged a minor commit message nit in patch 2/9. The series is now **unblocked**, with all substantive feedback addressed.
+
+**Why it matters**: Expensive tests are critical for catching edge cases, but they must be reliable and efficient to run in CI. This series ensures they are both.
+
+---
+
+### `--exclude-first-parent-only` bugfix
+**Subject**: [PATCH] revision: fix `--exclude-first-parent-only` with explicit commits
+**Author**: Junio C Hamano
+**Status**: **New patch**, likely to merge.
+
+Junio submitted a **standalone fix** for a bug in `git rev-list --exclude-first-parent-only` where explicitly specified commits (e.g., `git rev-list --exclude-first-parent-only F R1 ^R2`) were incorrectly excluded. The patch adds an early exit in `process_parents()` when the option is active and a parent is already marked as `SEEN`, preventing the exclusion logic from misfiring. A new test case in `t6012-rev-list-simplify.sh` verifies the fix.
+
+**Why it matters**: This is a **regression fix** for a rarely used but documented option, ensuring it behaves as expected when combined with explicit commit ranges.
+
+---
+
+### Worktree config conditions (v6)
+**Subject**: [PATCH v6 0/6] config: add `includeIf.worktree:<pattern>` support
+**Author**: Chen Linxuan
+**Status**: **Ready for merging** after addressing symlink behavior.
+
+Chen’s **6-patch series** adds `includeIf.worktree:<pattern>` and `includeIf.worktree/i:<pattern>` to Git’s config system, allowing conditional inclusion based on the worktree’s realpath. The v6 update addressed Windows CI issues and improved documentation, but Patrick Steinhardt identified a **behavioral inconsistency**: unlike `gitdir`, the new `worktree` condition resolves symlinks to the real path, which could confuse users. The series is otherwise **technically sound**, with Junio approving the documentation and tests.
+
+**Why it matters**: This feature simplifies multi-worktree setups by letting users scope configurations to specific directories (e.g., personal vs. work projects) without knowing Git’s internal `.git` structure.
+
+---
+
+### `git history` commit signing
+**Subject**: [PATCH 0/3] history: teach `git history` to sign rewritten commits
+**Author**: Souma
+**Status**: **New series**, awaiting review.
+
+Souma’s **3-patch series** teaches `git history`’s `fixup`, `reword`, and `split` subcommands to respect `commit.gpgsign` and the `-S/--gpg-sign` flags. The implementation plumbs signing options through the commit-creation logic in `replay.c` and adds regression tests for config-driven signing, command-line overrides, and descendant-commit replay. The series is **well-scoped** and aligns with Git’s existing signing infrastructure, but it hasn’t yet attracted review.
+
+**Why it matters**: This extends Git’s signing capabilities to the experimental `git history` command, improving security for users rewriting history.
 
 ---
 
 ## In brief
-
-**`git rev-list --exclude-first-parent-only` bugfix** -- Junio C Hamano fixed a misbehavior where the option incorrectly excluded commits when additional commits were explicitly specified. The patch adds a new test case and targets `process_parents()` in `revision.c`.
-
-**`git rm -n *.json` recursion clarification** -- Patrick Steinhardt and Phillip Wood clarified that `git rm`’s recursive behavior with glob patterns is **expected** (not a bug) due to Git’s pathspec rules. The discussion highlighted the `:(glob)` pathspec modifier as a workaround for non-recursive matching.
-
-**`git replay --linearize` (v6)** -- Toon Claes’s series addressing post-merge issues in `git replay --linearize` is now **ready for final review**. Junio C Hamano raised a minor question about authorship attribution but did not object to the technical content.
-
-**`git refs` subcommand follow-ups** -- Toon Claes raised usability questions about `git refs create`’s `--no-deref` option and `git refs rename`’s symref support. The feedback is **surface-level** and does not challenge the merged series’ correctness.
-
-**`git repo info` prefix querying** -- K Jayatheerth’s GSoC patch added category-based prefix querying to `git repo info`, but Junio C Hamano suggested using **globs** (e.g., `layout.*`) instead of simple prefixes for greater expressiveness.
-
-**`git history drop` series merged** -- Patrick Steinhardt’s 11-patch series adding `git history drop` is now **fully merged** after Junio C Hamano addressed a whitespace nit. The series modernizes the reset API and advances `the_repository` removal.
-
-**`greplint.pl` (v3)** -- Michael Montalbo’s **6-patch series** introducing `greplint.pl` (a linter to convert bare `grep` to `test_grep`) is now complete. The series addresses all prior feedback, including audits of `# lint-ok` exemptions and fixes for pre-existing test bugs.
-
-**`git rm` pathspec documentation gap** -- The thread about `git rm -n *.json` unexpectedly recursing into subdirectories **converged on a documentation gap**. The behavior is correct (due to pathspec rules), but users may not find the `:(glob)` modifier in `git-rm(1)`. No patch has been proposed yet.
-
-**macOS Unicode filename crash fix** -- Ihar Hrachyshka’s patch fixing a crash in Git’s `precompose_utf8` layer when handling long UTF-8 filenames received **substantive feedback** from Patrick Steinhardt and Junio C Hamano. The discussion focused on memory management and test robustness, with Junio suggesting rewriting the test to avoid Perl.
-
-**`git rebase --edit-commits` feature request** -- Matthias Beyer’s request for a programmatic way to edit commits during interactive rebase was **resolved by existing features**: `GIT_SEQUENCE_EDITOR` and `git log --format=%h`. Brian M. Carlson and D. Ben Knoble provided practical examples and caveats.
+- **`git rm` pathspec clarification**: Patrick Steinhardt and Phillip Wood clarified that `git rm -n *.json` recurses into subdirectories because Git treats arguments as **pathspecs** (not shell globs). The `:(glob)` modifier can restrict matching to the current directory.
+- **`USE_NSEC` debate**: D. Ben Knoble and Jeff King confirmed that modern Linux filesystems (ext4, XFS, vfat) preserve nanosecond timestamps, but the discussion about whether to flip the default or make it runtime-configurable remains unresolved.
+- **`git replay --linearize`**: Junio questioned the authorship of the v6 documentation patch but didn’t block the series, which is otherwise ready for re-merge after fixing a regression in v5.
+- **Memory-leak fixes**: Jeff King’s **9-patch series** for non-default hash implementations (OpenSSL, libgcrypt) attracted naming feedback from Patrick Steinhardt, who suggested `git_hash_release()` over `git_hash_discard()`. The series is otherwise uncontroversial.
+- **Test modernization**: Marcelo Machado Lage’s patch to modernize `t9811-git-p4-label-import.sh` received stylistic feedback from Patrick and Junio, who suggested splitting long commands and clarifying the commit message.
+- **macOS Unicode crash**: Ihar Hrachyshka’s patch to fix a crash in `precompose_utf8` when handling long UTF-8 filenames (>255 bytes) was reviewed by Torsten Bögershausen and Patrick Steinhardt. Junio suggested rewriting the test to avoid Perl, and Patrick proposed using `FLEX_ALLOC_MEM()` for better memory management.
+- **`git repo info` prefix querying**: K Jayatheerth’s GSoC patch to add category-based prefix querying to `git repo info` was critiqued by Junio, who suggested supporting glob patterns (e.g., `layout.*`) for greater flexibility.
 
 ---
 
 ## On the radar
-
-**`paint_down_to_common()` optimization (v6)** -- Tian Yuchen’s series optimizing `paint_down_to_common()` for one-sided histories is **ready for merging** after a procedural rebase. Junio C Hamano has not yet queued it in `seen`.
-
-**`USE_NSEC` discussion** -- The debate about whether to flip the default of `USE_NSEC` to `true`, deprecate the knob, or convert it to runtime configuration remains **unresolved**. Jeff King’s testing showed modern Linux filesystems preserve nanosecond timestamps, but interoperability risks (e.g., Git/JGit mixing) and platform coverage gaps persist.
-
-**`git apply` quadratic-time behavior in reftable** -- Kristofer Karlsson’s patch fixing a quadratic-time scalability issue in the reftable backend is **stalled**. The fix exposes tombstones to iterator bounds checks, but Kristofer reports difficulty reproducing the performance improvement in realistic scenarios. The patch’s practical value is now in question.
+- **`git rebase --edit-commits`**: Matthias Beyer’s feature request for programmatic commit editing during rebase was resolved by demonstrating `GIT_SEQUENCE_EDITOR`, but the discussion highlighted the complexity of shell-nesting in automation scripts.
+- **`git diff --index`**: A proposal to deprecate `--cached` in favor of `--index` received vague support but no substantive review. The change would modernize Git’s CLI but risks breaking scripts.
+- **`paint_down_to_common()` optimization**: Tian Yuchen’s **10-patch series** (v6) to optimize merge-base queries for one-sided histories is ready for merging after a procedural rebase. The series includes **100–1000x speedups** for asymmetric queries.
