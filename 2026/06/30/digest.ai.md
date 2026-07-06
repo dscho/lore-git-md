@@ -1,90 +1,70 @@
-# The Git Project Mailing List Daily Digest
-
 **The day in brief.**
-June 30, 2026 was a busy day on the Git mailing list, with 94 emails across 23 threads. The most consequential developments were **Phillip Wood’s 11-patch series fixing the sequencer’s handling of dropped commits during rebase** (a long-standing bug that incorrectly copied notes to HEAD) and **Patrick Steinhardt’s 13-patch refactoring of repository discovery and setup** (a foundational step toward eliminating global state). Smaller but notable threads included **Jeff King’s memory leak fixes in `git format-patch`**, **René Scharfe’s patch for `git blame -b` output formatting**, and **a usability discussion about `git clone` sparse-checkout paths**. The day also saw routine progress on ODB abstraction, reftable hardening, and build system parity.
+June 30, 2026 was a **heavy but focused** day on the Git mailing list, with **94 emails across 23 threads**. The standout developments were **Phillip Wood’s 11-patch series fixing the rebase-dropped-commit bug** (a long-standing issue where notes were incorrectly copied from dropped commits) and **Patrick Steinhardt’s 13-patch refactoring of repository setup** (separating discovery from configuration). Both efforts are now **ready for final review and merging**, marking significant progress in Git’s core infrastructure. Other notable threads included **design debates on `git replay --linearize`’s CLI consistency**, **usability discussions around `git history squash`**, and **security hardening for the reftable backend**.
 
 ---
 
-## Notable threads
+### Notable threads
 
-### Sequencer: avoid copying notes from dropped commits during rebase
+#### **Rebase-dropped-commit bug finally fixed**
+**Subject:** [PATCH 0/11] sequencer: avoid copying notes from dropped commits during rebase
 **Author:** Phillip Wood
-**Status:** 11-patch series, ready for final review
 
-Phillip Wood delivered a **comprehensive overhaul** of how the sequencer handles dropped commits during rebase, addressing a long-standing bug where notes from dropped commits were incorrectly copied to the current HEAD. The series is structured as a gradual refactoring (patches 1–9) followed by the core fix (patch 11), which introduces a `PICK_RESULT_DROPPED` enum to prevent dropped commits from being recorded as rewritten. The patch also handles edge cases like final fixup cleanup and ensures post-rewrite hooks receive accurate information.
-
-The series is **technically complete and well-tested**, with expanded coverage in `t3400-rebase.sh` and `t5407-post-rewrite-hook.sh`. Junio C Hamano has already queued a handful of typofix commits on top of the series, signaling readiness for integration. This is a **substantive, tested-level contribution** that directly addresses technical debt in the rebase machinery, and it looks likely to land in `next` shortly.
+Phillip Wood delivered a **comprehensive 11-patch series** that overhauls how the sequencer handles dropped commits during rebase, fixing a long-standing bug where notes from dropped commits were incorrectly copied to the current HEAD. The series also addresses three additional rebase bugs: external merge strategy failures, command execution failures, and final fixup cleanup. The patches are **well-structured**, with preparatory refactorings followed by the core fix, and include **expanded test coverage** to catch regressions. Junio C Hamano has already queued a handful of typofix commits on top of the series, signaling readiness for merging. This is a **major milestone** for Git’s rebase machinery, resolving a correctness issue that has lingered since 2018.
 
 ---
 
-### Refactor repository discovery and setup
+#### **Repository setup refactoring nears completion**
+**Subject:** [PATCH 0/13] setup: separate repository discovery from setup
 **Author:** Patrick Steinhardt
-**Status:** 13-patch series, in review
 
-Patrick Steinhardt’s **13-patch refactoring series** separates repository *discovery* (finding the repository location and format) from *setup* (configuring the repository object), a foundational step toward consolidating repository configuration into `repo_init()`. The series introduces a new `struct repo_discovery` to hold discovery results, eliminates scattered global state (e.g., the static `cwd` buffer), and makes the prefix a property of the repository rather than a global variable. The changes touch core files like `setup.c`, `repository.c`, and several built-ins (`clone`, `init-db`, `rev-parse`).
-
-The series is **well-structured and aligns with Patrick’s long-term refactoring goals** (e.g., ODB abstraction, `the_repository` removal). Junio C Hamano has already fixed a minor typo in one of the patches, and the series is now in the review phase. While no behavior changes are intended, the separation could expose edge cases in repository initialization, so reviewers familiar with setup logic (e.g., Jeff King, Taylor Blau) may focus on the new `repo_discovery` API and its implications for future work.
+Patrick Steinhardt’s **13-patch series** to separate repository discovery from setup is now complete and ready for review. The series introduces a new `struct repo_discovery` to hold discovery results (gitdir, worktree, prefix, and format), making the two phases distinct and self-contained. This refactoring is part of the broader effort to **consolidate repository configuration into `repo_init()`** and reduce scattered setup logic. The patches are **mechanical but foundational**, touching core files like `setup.c`, `repository.c`, and several built-ins. Junio C Hamano has already fixed a minor typo in one commit, and the series is **poised to land in `next`** once final reviews are complete. This is a key step toward the long-term goal of **eliminating global state** in Git’s setup code.
 
 ---
 
-### Reftable: security hardening against corrupted files
-**Author:** Patrick Steinhardt
-**Status:** 12-patch series, merged to `next`
-
-Patrick Steinhardt’s **12-patch series** systematically hardens Git’s reftable backend against security vulnerabilities triggered by maliciously corrupted files. The series includes fixes for out-of-bounds reads/writes, NULL pointer dereferences, and uninitialized memory usage, along with new fuzzing infrastructure to prevent regressions. Junio C Hamano has already acknowledged the test helper patch (5/12), and the series is now **merged to `next`**, signaling readiness for the next release cycle.
-
-This is a **proactive security effort** that addresses edge cases in reftable parsing, and the fuzzing infrastructure is a notable addition to Git’s testing toolkit. The series is part of the broader reftable backend effort led by Patrick and Karthik Nayak.
-
----
-
-### `git replay --linearize`: interface design and regression fix
+#### **`git replay --linearize` CLI debate continues**
+**Subject:** [PATCH v5 0/3] replay: introduce --linearize option
 **Authors:** Toon Claes, Johannes Schindelin, Patrick Steinhardt
-**Status:** Post-merge regression and design discussion
 
-The `git replay --linearize` feature, which flattens merge commits into linear history, **landed in `master` but faces two critical issues**: a **silent commit-dropping regression** in single-branch replay and a **CLI design inconsistency** with `git rebase`. Johannes Schindelin identified the regression (where intermediate commits are lost when replaying a single branch with merges), while Patrick Steinhardt raised the design question of whether `--linearize` should mirror `git rebase`’s `--rebase-merges` syntax.
-
-The discussion has shifted from technical correctness to **usability and consistency**, with Schindelin arguing that `--linearize` is conceptually distinct from merge-handling modes and should remain a standalone flag. Toon Claes has agreed to restore the `replayed_base` logic to fix the regression, but the CLI debate remains unresolved. A **follow-up patch is urgently needed** to address the regression, while the design question may require broader input from the community.
+The design discussion around `git replay --linearize`’s CLI consistency with `git rebase` remains unresolved. Johannes Schindelin **rejected Patrick Steinhardt’s proposal** to mirror `git rebase`’s `--rebase-merges=<mode>` syntax, arguing that `git rebase`’s interface is "full of usability warts" and that `--linearize` should remain a standalone flag. Patrick acknowledged the usability concerns but insisted that any divergence from `git rebase` must be **explicitly justified** in the commit message. Toon Claes, the author, has aligned with Schindelin’s technical direction (restoring the `replayed_base` parameter to fix a regression) but has not yet addressed the CLI debate. The thread is now **split between algorithmic correctness** (resolved) and **interface design** (still open), with the latter likely requiring a maintainer decision before the feature can graduate.
 
 ---
 
-### `git history squash`: recoverability and template formatting
+#### **`git history squash` usability feedback surfaces recoverability concerns**
+**Subject:** [PATCH v6 0/4] history: add squash subcommand
 **Authors:** Harald Nordgren, Phillip Wood, Matt Hunter
-**Status:** Post-merge usability discussion
 
-Harald Nordgren’s `git history squash` feature, which folds a range of commits into one, **landed in `master` but sparked a usability discussion** about recoverability and template formatting. Matt Hunter raised concerns about the `--reedit-message` template’s readability and the lack of a foolproof way to undo operations that move multiple branch refs. Harald proposed a **human-centered reflog design** to improve recoverability, while Phillip Wood suggested making `--reedit-message` the default to encourage better commit hygiene.
-
-The discussion highlights **broader UX gaps in the `git history` suite**, particularly around recoverability and interactivity. While no immediate code changes are proposed, the thread signals that future work may focus on improving the reflog’s usability and making `git history` operations more recoverable.
+User feedback on the newly merged `git history squash` feature has **expanded the discussion beyond template formatting** to broader usability concerns. Matt Hunter and Phillip Wood raised **recoverability issues**: `git reset --hard` may not fully undo a `git history` operation if `--update-refs` moved other branches, and Git lacks a way to atomically undo multi-ref operations. Harald Nordgren proposed a **human-centered reflog redesign** to better track high-level workflows, while Phillip suggested looking to tools like Jujutsu and git-branchless for inspiration. The thread has **shifted from implementation details to systemic UX gaps**, though no concrete patches have emerged yet. The `--reedit-message` template debate was resolved in favor of Phillip Wood’s cleaner design, but the recoverability discussion remains open.
 
 ---
 
-## In brief
+#### **ODB abstraction stack advances**
+**Subject:** [PATCH v2 0/2] odb: generalize reprepare() callback for pluggable ODBs
+**Author:** Patrick Steinhardt
 
-**Prio-queue optimization** -- Kristofer Karlsson’s series optimizing Git’s priority queue implementation with deferred removal tracking was **merged to `master`** after Junio C Hamano’s final sign-off. The series generalizes the `lazy_queue` pattern from `builtin/describe.c` into core `prio_queue` functionality, eliminating duplicate optimizations while maintaining 1.7–2.7% speedups on traversal-heavy operations.
-
-**ODB abstraction** -- Patrick Steinhardt’s **`ps/odb-source-packed`** and **`ps/odb-generalize-prepare`** series were **approved and merged to `next`**, advancing the ODB abstraction effort. The former refactors the packed object source into a proper `struct odb_source`, while the latter generalizes the `reprepare()` callback into a `prepare()` callback with an optional flush flag.
-
-**`git refs` subcommands** -- Patrick Steinhardt’s **five-patch series** adding `delete`, `update`, `create`, and `rename` subcommands to `git refs` was **merged to `next`** after a final typo fix. The series consolidates reference manipulation under a unified interface, improving discoverability without altering on-disk formats.
-
-**Memory leaks in `git format-patch`** -- Jeff King fixed a memory leak in `prepare_bases()` and adjusted the test harness to redirect LeakSanitizer output to stderr. The fixes are **self-contained and low-risk**, with Patrick Steinhardt proposing to enable LSan for the `linux-TEST-vars` CI job to catch similar leaks earlier.
-
-**`git blame -b` output formatting** -- René Scharfe submitted a **patch to stop reserving an extra hex digit** for a caret marker that is never displayed when `git blame -b` is used. The patch refactors the mark-handling logic in `blame.c` and aligns the abbreviated commit hash length with the user’s `core.abbrev` setting, eliminating a manual truncation step in workflows involving `git rebase`.
-
-**`git clone` sparse-checkout paths** -- Pushkar Singh’s RFC proposing `--only`/`--except` options for `git clone` to specify sparse-checkout paths received **cautious feedback from Jeff King**, who suggested an alternative design using a patterns file. The discussion remains at the proposal stage, with no clear consensus on the interface.
-
-**`USE_NSEC` build-time vs. runtime configuration** -- The discussion about whether `USE_NSEC` (sub-second file timestamp tracking) should be a build-time option, runtime setting, or removed entirely **remains unresolved**. Jeff King noted that there is no reliable, portable way to auto-detect whether a filesystem preserves nanosecond timestamps, complicating the runtime-configuration proposal.
-
-**Test modernization** -- Bryan B. Lima’s patch replacing raw shell test primitives in `t/t7412-submodule-absorbgitdirs.sh` with descriptive helper functions was **merged to `next`**. The patch is part of the ongoing community-wide effort to modernize Git’s test suite.
-
-**Config file parser case-sensitivity** -- Rishav Dewan’s patch fixing a case-sensitivity mismatch in old-style `[section.subsection]` config headers was **redirected to Johannes Schindelin** for review. The patch adds a `subsection_case_sensitive` flag to `struct config_store_data` and updates the `matches()` function to use case-sensitive or case-insensitive comparison based on the flag.
+Patrick Steinhardt’s **3-patch series** to generalize the `reprepare()` callback into a more flexible `prepare()` callback has received **final approval** from Toon Claes and Junio C Hamano. The series enables `git grep` to work with pluggable ODB backends by decoupling cache invalidation from ODB preparation. It depends on `ps/odb-source-packed` (already merged to `next`) and is now **ready to advance**. This is another step toward **backend-agnostic object storage**, a key architectural goal for Git’s future.
 
 ---
 
-## On the radar
+### In brief
 
-**`git replay --linearize` regression** -- A **follow-up patch is urgently needed** to restore the `replayed_base` logic and fix the silent commit-dropping regression in single-branch replay. The CLI design debate (whether to mirror `git rebase`’s `--rebase-merges` syntax) remains open but is secondary to the regression.
+**Prio-queue optimization merged** -- Junio C Hamano signed off on Kristofer Karlsson’s **4-patch series** optimizing Git’s priority queue implementation, which folds the `lazy_queue` pattern into core functionality and maintains 1.7-2.7% speedups on traversal-heavy operations. The series is now merged.
 
-**`git history` recoverability** -- The discussion about improving recoverability in the `git history` suite (e.g., a human-centered reflog or atomic undo for multi-ref operations) is **worth tracking**, as it could inform future UX improvements.
+**Reftable hardening series complete** -- Patrick Steinhardt’s **12-patch series** hardening the reftable backend against corrupted files is now complete, with all fixes and fuzzing infrastructure in place. Junio acknowledged the test helper refactoring, and the series is **ready for final review**.
 
-**`USE_NSEC` runtime configuration** -- If the project decides to convert `USE_NSEC` to a runtime setting, a **patch implementing `core.useNsec`** will be needed, along with a decision on the default value (e.g., `true` on modern Linux, `false` elsewhere).
+**`git refs` subcommands merged** -- Patrick Steinhardt’s **5-patch series** adding `delete`, `update`, `create`, and `rename` subcommands to `git refs` is now merged to `next`. The series consolidates reference manipulation under a unified interface, improving discoverability.
 
-**Reftable backend performance** -- Jeff King’s analysis of **quadratic-time behavior in the reftable backend** during bulk ref deletion and re-creation is a **substantive technical observation** that could inform future optimizations, particularly for large repositories.
+**Memory leak fixes** -- Jeff King posted a **2-patch series** fixing memory leaks in `git format-patch` and the test harness. The patches are **self-contained and low-risk**, addressing issues discovered opportunistically.
+
+**Test modernization** -- Bryan B. Lima’s patch modernizing `t7412-submodule-absorbgitdirs.sh` to use descriptive test helpers (`test_path_is_file`, etc.) was **accepted and queued** by Junio C Hamano.
+
+**`git blame -b` usability fix** -- René Scharfe posted a **patch** to fix a usability friction in `git blame -b`, where the output reserved an extra hex digit for an unused caret marker. The patch refactors the mark-handling logic to align the abbreviated commit hash length with the user’s `core.abbrev` setting.
+
+**Config parser case-sensitivity bug fixed** -- Rishav Dewan posted a **patch** fixing a long-standing case-sensitivity mismatch in Git’s config file parser, where updates to old-style `[section.subsection]` headers failed if the subsection contained uppercase letters. The patch adds a `subsection_case_sensitive` flag to handle case-sensitive and case-insensitive comparisons appropriately.
+
+---
+
+### On the radar
+
+**`USE_NSEC` default flip and runtime configuration** -- The discussion around flipping the default of `USE_NSEC` to `true` and converting it to a runtime-configurable setting remains unresolved. Jeff King’s testing confirmed that modern Linux filesystems preserve nanosecond timestamps correctly, but interoperability risks (e.g., with JGit) and the lack of a portable auto-detection mechanism complicate the decision. No patches have been posted yet, but the thread is **worth tracking** for its implications on Git’s timestamp handling.
+
+**`git clone --only/--except` for sparse-checkout** -- Pushkar Singh’s RFC proposing `--only`/`--except` options for `git clone` to specify sparse-checkout paths received **cautious feedback** from Jeff King, who suggested an alternative design (providing a patterns file at clone time). The proposal remains at the **design stage**, with no implementation yet. If the feature gains traction, it could simplify monorepo workflows by eliminating a separate `git sparse-checkout set` step.
