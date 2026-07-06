@@ -1,71 +1,74 @@
-Here’s the digest for **July 2, 2026**—a day where post-merge regressions, build system tweaks, and memory hygiene dominated the list, with a few philosophical debates about CLI design and CI infrastructure simmering in the background.
+Here’s the daily digest for **July 2, 2026**, covering the Git mailing list’s key developments:
 
 ---
 
-### The day in brief
-Git’s mailing list saw **68 emails across 21 threads**, a moderate but focused volume. The standout themes: **post-merge regressions in `git replay --linearize`** (now fixed in v6), **memory leak fixes** (with a side of CI infrastructure debate), and **build system races** in Meson. The most urgent work—Toon Claes’s `replay` regression fix—landed, while Jeff King’s hash-context leak series and Patrick Steinhardt’s ODB refactoring advanced toward `next`. A quiet but notable thread emerged about Git’s reflog limitations, hinting at future architectural work.
+### **The day in brief**
+A busy day (68 emails, 21 threads) with **critical post-merge fixes** for `git replay --linearize`, **build system and CI improvements**, and **memory leak cleanups** dominating the discussion. The most urgent thread addresses a **silent commit-dropping regression** in the newly merged `git replay --linearize` feature, while a 9-patch series from Jeff King plugs memory leaks in Git’s hash implementations. Meanwhile, Patrick Steinhardt’s ODB refactoring and Toon Claes’s CI/test efficiency work continue to progress, with several series now ready for `next`.
 
 ---
 
-### Notable threads
+### **Notable threads**
 
-#### **`git replay --linearize` regression fixed (v6)**
-**Headline:** *Toon Claes’s `--linearize` option for `git replay` merged prematurely—then silently dropped commits. Now fixed in v6.*
-The thread began with **Johannes Schindelin’s alarm** about a regression in `git replay --linearize`: when replaying a single branch containing merge commits, only the tip commit was preserved, with intermediate commits (including merges) silently dropped. The root cause? A refactoring in v5 inadvertently removed the `replayed_base` mechanism that preserved linearized history. **Toon Claes’s v6** restores this logic, ensuring all replayed commits are flattened into a single linear topology, even across multiple branches. The series also **clarifies the design intent**: `--linearize` produces a *single linear sequence*, duplicating shared history if necessary—a behavior now documented and tested.
-
-**Why it matters:** This was a **data-loss bug** in a newly merged feature. The fix’s thoroughness (regression tests, documentation updates) sets a high bar for post-merge follow-ups. The thread also exposed a **CLI design tension**: Patrick Steinhardt’s push for consistency with `git rebase`’s `--rebase-merges` syntax clashed with Schindelin’s UX-driven preference for `--replay-merges=<mode>`. The debate ended with a **process-level takeaway**: future CLI changes may require **explicit justification in commit messages** to avoid arbitrary divergence.
-
----
-
-#### **Memory leaks in hash contexts (9-patch series)**
-**Headline:** *Jeff King plugs leaks in non-default hash backends (OpenSSL, libgcrypt), exposing CI gaps.*
-Peff’s series targets a **niche but critical correctness issue**: Git’s hash contexts (`git_hash_ctx`) leak memory when using non-default backends like OpenSSL SHA-256 or libgcrypt. The leaks surface under `SANITIZE=leak` and affect subsystems like `csum-file`, `patch-id`, and HTTP object requests. The fix introduces a new `git_hash_discard()` primitive and systematically applies it across leaky code paths. **Junio C Hamano approved the first patch**, and the series is now poised for `next`.
-
-**Why it matters:** While the leaks only affect users who explicitly configure non-default hash backends, the series **highlights CI blind spots**. Peff notes that the `linux-sha256` job lacks leak checking, and libgcrypt isn’t tested at all. The thread also sparked a **naming debate** (e.g., `free_hashfile()` vs. `hashfile_discard()`), with Peff proposing a follow-up cleanup. For most users, this is invisible—but for those on OpenSSL ≥ 3.0 or libgcrypt, it’s a **long-overdue fix**.
+#### **`git replay --linearize` regression: silent commit dropping**
+**Headline:** *Post-merge fix for `git replay --linearize` restores `replayed_base` logic*
+**Author:** Toon Claes
+**Status:** v6 series posted, addressing a **critical regression** in the recently merged `--linearize` feature. When replaying a single branch containing merge commits, v5 inadvertently dropped all intermediate commits, replaying only the tip directly onto `--onto`. The fix (patch 3/3) restores the `replayed_base` parameter to ensure all commits are flattened into a single linear topology. The series also clarifies the feature’s design intent: `--linearize` produces a **single linear sequence** regardless of input branches, even if it duplicates shared history. Documentation and test coverage have been expanded to expose this behavior.
+**Key detail:** The regression was confirmed by Johannes Schindelin with a test case (`master~2..master`), showing v5 replayed only the tip commit, dropping "Git 2.55-rc2" entirely. The fix aligns with Schindelin’s argument for **predictable behavior** over branch independence.
+**Next steps:** Series is ready for review; no unresolved technical objections remain.
 
 ---
 
-#### **ODB refactoring: `struct object_info` redesign (v2)**
-**Headline:** *Patrick Steinhardt’s ODB abstraction effort takes a step forward, replacing `whence` with `source_infop`.*
-This v2 series refactors `struct object_info` to use a new `source_infop` field, replacing the coarse `whence` enum with a backend-specific `struct odb_source_info`. The change enables **multi-source object resolution** and is a prerequisite for pluggable ODB backends. **Junio conceptually approved the series**, and Patrick addressed feedback by renaming `sourcep` to `source_infop` to avoid ambiguity. The patches are **mechanical but foundational**, touching 14 files across the ODB and packfile subsystems.
-
-**Why it matters:** This is **infrastructure work** for Git’s long-term ODB abstraction goals. The series is uncontroversial but critical: it paves the way for future backends (e.g., reftable, custom object stores) by making object provenance opt-in and extensible. The only lingering concern is a **pointer assignment pattern** (`oi->source_infop->source = &source->base`) that Junio called "yuck" but accepted as technically safe.
-
----
-
-#### **Meson build race fixed**
-**Headline:** *D. Ben Knoble and Adrian Ratiu squash a race in `hook-list.h` generation.*
-A **build-system regression** introduced by commit `2eb541e8f2a9` caused intermittent failures in the Meson build when `hook-list.h` wasn’t generated before `builtin/bugreport.c` was compiled. The fix—moving the header’s custom target definition earlier in `meson.build`—is **minimal and targeted**, with Adrian Ratiu (the regression’s author) confirming the solution. **Patrick Steinhardt’s review** reinforced the correctness of the approach.
-
-**Why it matters:** Build races are **frustrating and hard to debug**. This fix ensures the Meson build remains reliable, a priority as the project continues to invest in Meson alongside the traditional Makefile. The thread also serves as a reminder of the **fragility of build systems** during refactoring.
+#### **Memory leaks in hash implementations**
+**Headline:** *9-patch series plugs leaks in OpenSSL/libgcrypt hash backends*
+**Author:** Jeff King
+**Status:** Series complete, targeting leaks in Git’s hash algorithm handling when using non-default backends (e.g., OpenSSL SHA-256). The leaks were discovered via `SANITIZE=leak` and affect subsystems like `csum-file`, `patch-id`, and HTTP object requests. Patch 2/9 introduces `git_hash_discard()` as a cleanup primitive, while later patches apply it systematically. Patch 9/9 replaces the initial "hacky" implementation with platform-specific discard functions for efficiency.
+**Key detail:** Leaks only manifest with non-default hash backends, so the impact is limited to users who explicitly configure Git to use OpenSSL or libgcrypt. Junio C Hamano approved the direction of patch 1/9, and the series is uncontroversial.
+**Next steps:** Awaiting substantive review; likely to merge as-is.
 
 ---
 
-#### **`GIT_TEST_LONG` tests: CI reliability and efficiency (9-patch series)**
-**Headline:** *Patrick Steinhardt and Toon Claes make expensive tests CI-friendly—with a side of Chesterton’s fence.*
-This series tackles **CI flakiness and inefficiency** in `GIT_TEST_LONG` tests, which were causing pipeline hangs and excessive resource usage. Key changes:
-- **CI visibility**: Adds a GitLab CI badge to the README.
-- **Test correctness**: Skips broken tests on 32-bit systems (e.g., `t7508-status.sh`).
-- **Efficiency**: Replaces slow `dd` loops with `fallocate` (e.g., `t4141-apply-too-large.sh`).
-- **CI configuration**: Enables `GIT_TEST_LONG` in GitLab CI and disables it on Windows (due to RAM limits).
-
-**Why it matters:** The series **expands CI coverage** while reducing false positives. **SZEDER Gábor’s review** of patch 3/9 raised a nuanced point: even if a test runs quickly, high memory usage might still warrant the `EXPENSIVE` label. **Jeff King’s follow-up** questioned the portability of `test_copy_bytes`, hinting at future test-suite modernization. The thread underscores the **trade-offs in CI design**: reliability vs. coverage, speed vs. resource usage.
+#### **ODB refactoring: `struct object_info` redesign**
+**Headline:** *v2 series replaces `whence` with `source_infop` for multi-source resolution*
+**Author:** Patrick Steinhardt
+**Status:** v2 posted, addressing feedback from v1. The series replaces the coarse `whence` field in `struct object_info` with a new `struct odb_source_info` that carries backend-specific provenance data. This enables future multi-source object resolution and pluggable ODB backends. The v2 renames `sourcep` to `source_infop` to avoid ambiguity with the actual ODB source.
+**Key detail:** Junio C Hamano conceptually approved the series ("everything makes sense"), and the only remaining follow-up is a minor readability concern about an implicit upcast in patch 3/6. The series is a critical intermediate step in Patrick’s ODB abstraction effort.
+**Next steps:** Ready for `next` after a small reroll to address the upcast concern.
 
 ---
 
-### In brief
-- **`git history squash` template debate**: Phillip Wood and Junio C Hamano converged on a **minimalist template format** for `--reedit-message`, omitting `fixup!`/`amend!` noise while retaining `squash!` bodies. The series is **code-complete and ready for final review**.
-- **Reftable hardening**: Patrick Steinhardt’s 12-patch series to harden the reftable backend against corruption **received surface-level approval** from Christian Couder. The fuzzing infrastructure (libFuzzer + Meson) is now integrated.
-- **Git v2.55.0 released**: Junio’s announcement drew a **lighthearted reply** from Weijie Yuan about "Claude Sonnet 4.6" appearing in the contributor list—clearly an AI model.
-- **Bug reports**:
-  - **`git rm -n *.json` recurses unexpectedly** (Евгений Плискин).
-  - **`git rev-list --exclude-first-parent-only` misbehaves with explicit commits** (Michael Hore).
-  - **`git apply` leaks memory and corrupts state** (Zephyr Yao, fixed in a standalone patch).
-- **Test modernization**: Marcelo Machado Lage updated `t9811-git-p4-label-import.sh` to use modern test helpers (`test_path_is_file`).
+#### **CI and test efficiency improvements**
+**Headline:** *9-patch series makes `GIT_TEST_LONG` tests reliable for CI*
+**Author:** Toon Claes (with Patrick Steinhardt)
+**Status:** Series complete, addressing broken and inefficient `GIT_TEST_LONG` tests in CI. Key changes:
+- **Fixes:** Skip tests that hang on 64-bit systems (`t0021-conversion.sh`, `t7508-status.sh`).
+- **Efficiency:** Refactor slow tests (`t4141-apply-too-large.sh`, `t5608-clone-2gb.sh`) to use less disk space/CPU time.
+- **CI:** Enable `GIT_TEST_LONG` in GitLab CI and add a GitLab CI badge to the README.
+**Key detail:** SZEDER Gábor raised a concern about patch 3/9, noting that while the test now runs quickly, it still uses >1 GiB of memory, which may qualify as "expensive" regardless of runtime. Jeff King endorsed the patch but questioned the portability of `test_copy_bytes`.
+**Next steps:** Awaiting resolution of Gábor’s concern; otherwise ready for `next`.
 
 ---
 
-### On the radar
-- **Reflog limitations**: Patrick Steinhardt and Junio C Hamano’s exchange about Git’s reflog **hinted at a future "oplog" (operations log)** to enable atomic undo of multi-ref operations. This is **visionary but long-term**—no concrete patches yet, but the discussion frames a systemic gap in Git’s recoverability tooling.
-- **CI job consolidation**: Peff and Patrick debated the value of redundant compiler jobs (clang/gcc) and macOS `TEST-vars` coverage. The consensus leans toward **minimalism**, but the thread may resurface if CI flakiness persists.
-- **`git history` recoverability**: Matt Hunter and Phillip Wood’s critique of `--update-refs`’s side effects (e.g., `git reset --hard` not undoing branch moves) remains unresolved. A `--dry-run --verbose` mode or **reflog transaction IDs** could address this.
+#### **Reftable hardening and fuzzing**
+**Headline:** *12-patch series hardens reftable backend against corruption*
+**Author:** Patrick Steinhardt
+**Status:** v2 posted, adding fuzzing infrastructure (libFuzzer + Meson support) and fixes for vulnerabilities discovered by the fuzzer (out-of-bounds reads/writes, NULL pointer dereferences, etc.). The series is split into three parts: fuzzing infrastructure (patches 1–2), a test helper (patch 5), and individual fixes (patches 3–4, 6–12).
+**Key detail:** Christian Couder’s feedback on v1 (extract a helper function to reduce test boilerplate) was fully addressed in v2. Junio C Hamano acknowledged the test helper improvement.
+**Next steps:** Ready for substantive review of the security fixes.
+
+---
+
+### **In brief**
+- **`git format-patch` leak fix** -- Jeff King plugs a memory leak in `--base` option handling, present since 2016. Patch merged in principle.
+- **Meson build race fix** -- D. Ben Knoble’s patch ensures `hook-list.h` is generated before `builtin/bugreport.c` is compiled. Approved by Adrian Ratiu and Patrick Steinhardt.
+- **Git v2.55.0 released** -- Junio C Hamano’s announcement drew a lighthearted note from Weijie Yuan about "Claude Sonnet 4.6" appearing in the contributor list.
+- **Git for Windows 2.55.0(2)** -- Johannes Schindelin released a hotfix re-enabling NTLM authentication, previewing its planned deprecation later in 2026.
+- **Test modernization** -- Marcelo Machado Lage updated `t9811-git-p4-label-import.sh` to use modern test helpers (`test_path_is_file`).
+- **Git Rev News #136** -- Christian Couder announced the latest edition, with contributions from Toon Claes, Štěpán Němec, and Paulo Gomes.
+
+---
+
+### **On the radar**
+- **`git rev-list --exclude-first-parent-only` bug** -- Michael Hore reported unexpected behavior when additional commits are specified on the command line. The issue appears to be a logic flaw in `process_parents()` in `revision.c`.
+- **`git rm -n *.json` recursion bug** -- Евгений Плискин reported that `git rm -n *.json` recursively removes JSON files from subdirectories, contrary to documentation. This may be a core Git issue rather than platform-specific.
+- **`git apply` header parsing bug** -- Zephyr Yao fixed a memory leak and state corruption in `find_header()`, where abandoned Git-style diff headers could interfere with subsequent "---/+++" header parsing.
+- **CI job consolidation** -- Jeff King and Patrick Steinhardt discussed consolidating Git’s CI jobs, with consensus to merge `linux-reftables-leaks` and `linux-TEST-vars` into a single job (`linux-TEST-vars-leaks`). Skepticism remains about extending the pattern to macOS or compiler-specific jobs.
