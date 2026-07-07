@@ -1,74 +1,74 @@
-Here’s the daily digest for **June 26, 2026**, covering the Git mailing list’s most significant developments:
+Here’s the daily digest for **June 26, 2026**, covering the Git mailing list traffic:
 
 ---
 
 ### **The day in brief**
-A busy day on the list (86 emails, 17 threads) saw **two major series land in `next`**, a **critical regression identified** in a performance optimization, and **RFCs for ambitious repack and Rust features** debut. The standout: Patrick Steinhardt’s **reftable hardening** and **reference backend fixes** graduated, while Taylor Blau’s **geometric+cruft repack RFC** sparked early debate. A regression in Tian Yuchen’s **merge-base optimization** blocked its progress, and Junio’s "What’s cooking" report set the stage for Git 2.55-rc2’s deep freeze.
+A busy day on the Git mailing list (86 emails, 17 threads) saw **security hardening, refactoring, and feature work** dominate the discussion. The **`git cat-file --batch-command` remote object metadata series** neared completion, while **`git replay --linearize`** and **`git history squash`** advanced with architectural debates. A **critical regression** in the `paint_down_to_common()` optimization was caught by the test suite, and **reftable security fixes** landed alongside new fuzzing infrastructure. Junio’s "What’s cooking" report signaled deep freeze for Git 2.55-rc2, with only bugfixes and docs graduating to `master`.
 
 ---
 
 ### **Notable threads**
 
-#### **Reftable hardening lands in `next`**
-**Topic:** `ps/reftable-hardening` (11 patches)
-**Author:** Patrick Steinhardt
-**Status:** **Merged to `next`** (Authoritative status: [Cooking])
-**What happened:** A security-focused series hardened Git’s reftable backend against corrupted files, fixing out-of-bounds reads/writes, NULL pointer dereferences, and `abort()` calls during parsing. The patches also introduced **libFuzzer-based fuzzing infrastructure** (Meson/CI integration) to prevent regressions. Christian Couder’s review was minimal (test hygiene suggestions), but the series was deemed ready for `next` due to its critical safety improvements.
-**Why it matters:** Reftable is a key part of Git’s future storage strategy, and this series ensures it’s robust against malicious corruption—even if exploitation requires local disk access. The fuzzing infrastructure may be reused for other subsystems (e.g., packfile parsing).
+#### **`git cat-file --batch-command` remote object metadata (GSoC v14)**
+The **13-patch series** implementing `git cat-file --batch-command` for remote object metadata queries (e.g., object size) saw its final review rounds. Pablo Sabater addressed Junio’s feedback on the `strtoul_szt()` helper, switching to `uintmax_t` to handle platforms where `size_t` and `unsigned long` differ. Karthik Nayak and Chandra Pratap flagged minor documentation nits in patches 5–7, all of which were acknowledged. The series is **technically complete**, with only a pending commit message update for `strtoul_szt()`. Junio’s earlier "What’s cooking" report lists it as **waiting for author response**, but today’s traffic suggests it’s nearly ready for `next`.
+
+**Why it matters**: This feature enables efficient remote object queries without full downloads, a key step toward server-side Git operations. The security-hardened design (dynamic placeholder validation, strict protocol checks) sets a high bar for future protocol extensions.
 
 ---
 
-#### **Reference backend fixes graduate**
-**Topic:** `ps/refs-onbranch-fixes` (11 patches)
-**Author:** Patrick Steinhardt
-**Status:** **Merged to `next`** (Authoritative status: [Cooking])
-**What happened:** A long-running effort to resolve recursive initialization issues in Git’s reference backend (triggered by `includeif.onbranch` conditions) culminated in a **lazy-loading design**. The series defers write-config parsing until the first write operation, eliminating early config reads that could cause recursion. Jeff King (Peff) and Justin Tobler approved the architecture, and Junio merged it after renaming the topic to better reflect its focus on "onbranch" fixes.
-**Why it matters:** This foundational change ensures `git commit` respects `onbranch`-scoped settings (e.g., `core.logAllRefUpdates`) and paves the way for future backend modularity (e.g., ODB-based ref stores).
+#### **`git replay --linearize` (v5)**
+Toon Claes posted **v5** of the `--linearize` option for `git replay`, addressing the **boolean vs. enum debate** from v4. The controversial `enum replay_mode` refactoring was reverted in favor of **detailed code comments** explaining the base-commit selection logic in `pick_regular_commit()`. A **bug in `--onto` handling** (incorrect `replayed_base` mapping) was fixed, and test coverage expanded. Junio approved the uncontroversial refactoring patches (1–2/3) but noted a **behavioral difference** with `git rebase --no-rebase-merges` when flattening divergent merges (e.g., `A->X` and `A->Y` merging at `Z`): `git replay --linearize` drops one branch entirely, while `git rebase` rewrites both. Toon acknowledged the discrepancy and proposed documenting it.
+
+**Why it matters**: The series is **ready for `next`** once the behavioral note is added. The `--linearize` option brings server-side rebase functionality closer to parity with `git rebase`, but the interface design debate (whether to mirror all `git rebase` modes now) remains open.
 
 ---
 
-#### **Merge-base optimization hits regression**
-**Topic:** `kk/merge-base-exhaustion` (8 patches, v3)
-**Author:** Tian Yuchen
-**Status:** **Blocked** (regression in patch 7/8)
-**What happened:** A performance optimization to terminate merge-base walks early when one side’s commit queue is exhausted (yielding **100-1000x speedups** for asymmetric histories) was derailed by a **critical regression**. Patch 7/8 widened a BUG assertion to fire unconditionally, breaking correctness when `min_generation` is unset. Junio ejected the series from `seen`, and the author acknowledged the issue, planning a v4 fix.
-**Why it matters:** The optimization targets large repositories (e.g., with import grafts), but the regression underscores the fragility of generation-number invariants. The test suite’s **deterministic step-count assertions** (added in v3) caught the bug, validating the series’ robust instrumentation.
+#### **`git history squash` (v6 prep)**
+Harald Nordgren’s **`git history squash`** series (collapsing commit ranges into a single commit) faced **substantive review** from Phillip Wood. Key concerns:
+1. **Input validation**: The command accepts single-commit ranges (e.g., `@^!`) and non-ancestor ranges (e.g., `origin/seen^2^!` from `master`) without warning.
+2. **Merge commit handling**: Behavior with external parents (e.g., merges with parents outside the range) is undocumented.
+3. **Ref handling**: Clarity on what happens to branches pointing inside the squashed range.
+
+Harald agreed to tighten validation and document edge cases but pushed back on supporting two separate arguments (e.g., `git history squash ^:/base :/tip`), arguing the `<base>..<tip>` form is sufficient. Junio weighed in, demonstrating how `HEAD^{/pattern}` syntax could enable more complex queries, but no consensus emerged.
+
+**Why it matters**: The series is **code-complete** but needs **stricter validation and documentation** before merging. The discussion highlights Git’s tension between flexibility and usability in new commands.
 
 ---
 
-#### **Geometric+cruft repack RFC debuts**
-**Topic:** `[RFC PATCH 0/10] repack: combine --geometric and --cruft`
-**Author:** Taylor Blau
-**Status:** **RFC** (Authoritative status: [New Topics])
-**What happened:** Taylor proposed combining `git repack --geometric` and `--cruft` modes, which are currently mutually exclusive. The series introduces `--stdin-packs=follow-reachable` to `git pack-objects`, ensuring only reachable objects from rolled-up packs are included in geometric packs, while unreachable objects are collected into cruft packs. Junio’s early review flagged a **potential correctness issue** in the reachability traversal logic (unreachable tags could be incorrectly retained).
-**Why it matters:** This would streamline maintenance workflows for large repositories, but the complexity of the two-phase traversal and the timing (submitted during -rc phase) suggest it may need significant iteration.
+#### **`paint_down_to_common()` optimization (v3, regression)**
+Kristofer Karlsson’s **v3 series** optimizing `paint_down_to_common()` for one-sided histories hit a **critical regression**: an unconditional BUG assertion in patch 7/8 broke correctness when `min_generation` is unset. Junio ejected the series from `seen` after `t6600-test-reach.sh` failed. Kristofer acknowledged the bug (a human error in unifying halt conditions) and plans a **v4 rework**. Derrick Stolee praised the **trace2 instrumentation** (patch 4/8) and **deterministic step-count assertions**, calling them "clean" and a strong regression guard.
+
+**Why it matters**: The regression underscores the value of **self-verifying tests** in performance patches. The series’ core optimization (100–1000x speedups for asymmetric histories) remains sound, but the fix must preserve correctness across all commit-graph modes.
 
 ---
 
-#### **`git history squash` edges closer**
-**Topic:** `hn/history-squash` (4 patches, v5)
-**Author:** Harald Nordgren
-**Status:** **Needs review** (Authoritative status: [Cooking])
-**What happened:** A feature to fold commit ranges into a single commit (`git history squash`) addressed feedback from Phillip Wood and Junio, tightening input validation (rejecting single-commit ranges) and clarifying edge cases (e.g., `fixup!`/`squash!` commits). The series now rejects operations with refs pointing inside the squashed range by default, with advice to use `--update-refs=head`.
-**Why it matters:** This avoids surprising users by silently orphaning refs (e.g., bisection markers). The design aligns with `git rebase`’s ref-handling patterns, but Phillip’s questions about merge commits with external parents remain open.
+#### **Reftable security hardening (v1)**
+Patrick Steinhardt’s **11-patch series** hardened the reftable backend against corrupted files, fixing OOB reads/writes, NULL pointer dereferences, and `abort()` calls. The series also introduced **libFuzzer-based fuzzing infrastructure** (Meson build support, CI integration) to prevent regressions. Christian Couder suggested a **test helper refactor** (patch 5/11) to reduce duplication, but the fixes themselves are uncontroversial. Junio’s "What’s cooking" report lists the topic as **needing review**.
+
+**Why it matters**: This is the first time Git’s build system has been extended for **coverage-guided fuzzing**, a major step for security. The fixes address real vulnerabilities (e.g., zlib OOB writes during log block reconstruction) and are critical for the reftable backend’s stability.
+
+---
+
+#### **ODB abstraction and libification**
+Two series advanced Patrick Steinhardt’s **ODB abstraction effort**:
+1. **`ps/odb-generalize-prepare` (v1)**: Generalized the `reprepare()` callback into a `prepare()` callback with an optional `ODB_PREPARE_FLUSH_CACHES` flag, enabling `git grep` to work with pluggable ODBs. Toon Claes raised **design questions** about downcasting and flag usage, but the series is otherwise ready for review.
+2. **`ps/connected-generic-promisor-checks` (v3)**: Refactored connectivity checks to use generic ODB iteration instead of packfile internals. Christian Couder approved the final patch, and Junio’s "What’s cooking" report lists it as **ready for `next`**.
+
+**Why it matters**: These series are **foundational** for pluggable ODB backends (e.g., reftable, custom storage). The `ps/connected-generic-promisor-checks` series is particularly important for repositories that don’t use packfiles.
 
 ---
 
 ### **In brief**
-- **`git cat-file --batch-command` security series (v14):** Pablo Sabater addressed Junio’s feedback on `strtoul_szt()` (switching to `uintmax_t` for cross-platform safety). The series is **ready for merging** after 14 iterations, with only commit message nits remaining.
-- **`git replay --linearize` (v5):** Toon Claes reverted the controversial `enum replay_mode` refactoring, replacing it with detailed code comments. The series is **technically complete** but awaits Junio’s final review.
-- **Libification effort:** Tian Yuchen’s patch to move `excludes_file` into `struct repo_config_values` hit a **build-breaking issue** (unused parameter) and a **design debate** over submodule guards. Junio suggested using `UNUSED` annotations as a temporary fix.
-- **Rustification:** A patch from Feng Wu fixed a correctness issue in `ObjectMap::insert()` by validating hash algorithms, part of the ongoing Rust effort.
-- **CI hangs:** The macOS CI hang in `t5551`/`t5559` was traced to Apache’s 300-second timeout. The consensus is to **increase the timeout** rather than mask the issue with client-side mitigations.
+- **`git repack --geometric` + `--cruft` (RFC)**: Taylor Blau proposed a **10-patch series** combining the two modes, introducing `--stdin-packs=follow-reachable` to `git pack-objects`. The series is **complex** (reachability traversal, refs snapshots) and submitted during the -rc phase, so it may require multiple iterations.
+- **`git history` bugfix**: Junio fixed a **file stream leak** in `fill_commit_message()` that could block editors on Windows.
+- **Libification**: Tian Yuchen’s series moving `excludes_file` into `struct repo_config_values` faced **build-breaking feedback** (unused parameter) and a **design debate** about submodule guards. Junio suggested marking the parameter `UNUSED` as a temporary fix.
+- **Rustification**: A patch fixed a **correctness issue** in `ObjectMap::insert()` by validating hash algorithms.
+- **CI hangs**: The macOS CI hang in `t5551`/`t5559` was traced to an **Apache `mod_http2` bug**. The consensus is to **increase Apache’s timeout** as a workaround.
 
 ---
 
 ### **On the radar**
-- **`jt/receive-pack-use-odb-transactions` (6 patches):** A refactoring to make `git-receive-pack` backend-agnostic by using ODB transactions. Waiting for author response.
-- **`ps/odb-drop-whence` (7 patches):** Removes the `whence` field from `struct object_info`, making backend-specific info opt-in. Depends on `ps/odb-source-packed`.
-- **`tb/midx-incremental-custom-base` (3 patches):** Fixes reachability closure for bitmaps in incremental MIDX writes. Needs review.
-
----
-
-### **Editor’s note**
-Today’s traffic was dominated by **performance optimizations** (merge-base, repack) and **security hardening** (reftable), with a sprinkle of **libification** and **Rust work**. The regression in Tian’s series is a reminder that even well-tested optimizations can hit subtle invariants, while Taylor’s repack RFC shows the project’s appetite for ambitious refactoring—even during feature freeze. Junio’s "What’s cooking" report confirms that only bugfixes and docs will graduate to `master` until Git 2.55 final, so expect the next few days to focus on stabilization.
+- **`ps/reftable-hardening`**: The reftable security fixes need review, but the fuzzing infrastructure is a **long-term win** for Git’s security posture.
+- **`jt/receive-pack-use-odb-transactions`**: A 6-patch series refactoring `git-receive-pack` to use ODB transactions (instead of `tmp_objdir`) is **waiting for author response**.
+- **`hn/branch-push-slip-advice`**: A 3-patch series adding advice for typos like `git push origin/main` (suggesting `origin main`) is **waiting for author response**.
+- **`tc/replay-linearize`**: The interface design debate (whether to mirror all `git rebase` modes) may resurface in future iterations.
