@@ -1,105 +1,77 @@
 # The Git Project Daily Digest
-**2026/06/28 (Sunday) – A Sunday of Regressions, Optimizations, and Final Touches**
+**2026/06/28 (UTC)**
 
-The day’s **45 emails across 17 threads** carried a **lighter-than-usual volume** but a **heavier-than-usual technical weight**. The standout developments: a **post-merge regression in `git replay --linearize`** surfaced late in the day, **Tian Yuchen’s `paint_down_to_common()` optimization series received final approval**, and **Harald Nordgren’s `git history squash` series reached feature-complete status**. The day also saw **final readiness for Pablo Sabater’s GSoC `git cat-file --batch-command` series**, a **CI fix for macOS hangs**, and **last-minute l10n updates** for Git 2.55.0.
+## The day in brief
+A **moderately busy Sunday** with **45 emails across 17 threads**, dominated by **performance optimizations**, **regression fixes**, and **final polish** on long-running series. The standout developments: **Tian Yuchen’s `paint_down_to_common()` optimization** received final approval, **Harald Nordgren’s `git history squash` series** reached v6 with stricter input validation, and **Jeff King’s CI hang fix** for `t5551`/`t5559` was posted. A **post-merge regression in `git replay --linearize`** resurfaced, requiring urgent attention.
 
 ---
 
 ## Notable threads
 
-### `git replay --linearize` regression: silent commit dropping
-**Thread: [PATCH 0/3] replay: introduce --linearize option**
-
-Johannes Schindelin **reported a critical regression** in `git replay --linearize` (merged in v5): the command **silently drops commits** when replaying a single branch containing merge commits. The issue stems from the removal of the `replayed_base` parameter in `pick_regular_commit()`, which was introduced to prevent this exact scenario. Schindelin provided a **reproducible test case** (`master~2..master` with `--linearize --onto master~2`) and explained why the parameter is necessary to ensure all replayed commits are flattened into a single topology.
-
-**Why this matters**: The regression undermines the feature’s core promise—predictable, all-or-nothing flattening—and risks data loss. Toon Claes is expected to send a follow-up patch to restore the mechanism or redesign how multi-branch histories are handled. The fix is **urgent** and must land before the next release.
-
-### Key technical details
-
-- **Files**: `replay.c`, `builtin/replay.c`
-- **Root cause**: Removal of `replayed_base` parameter in `pick_regular_commit()`
-- **Test case**: `git replay --linearize --onto master~2 master~2..master`
-- **Expected behavior**: All commits replayed (`A->X->Y->Z`)
-- **Actual behavior**: Only the tip commit replayed (`A->Z`)
-
----
-
-### `paint_down_to_common()` optimization: final approval
-**Thread: [PATCH v4 0/8] commit-reach: optimize `paint_down_to_common()` for one-sided histories**
-
-Derrick Stolee **gave the final approval** to Tian Yuchen’s **8-patch series** optimizing `paint_down_to_common()` for one-sided histories. The series terminates merge-base walks early when one side’s commit queue is exhausted, eliminating unnecessary traversal of large one-sided histories (e.g., repositories with import grafts). Key improvements:
-- **100-1000x speedups** for asymmetric queries (e.g., `merge-base --all` across a 2.6M-commit monorepo drops from 3.67s to 5ms).
+### `paint_down_to_common()` optimization receives final approval
+Tian Yuchen’s **8-patch series** optimizing `paint_down_to_common()` for one-sided histories was **fully approved by Derrick Stolee** after addressing a regression in v3. The series terminates merge-base walks early when one side’s commit queue is exhausted, delivering **100-1000x speedups** for asymmetric queries (e.g., repositories with import grafts). Key improvements in v4:
 - **Regression fix**: Restored the `min_generation` guard to the generation-monotonicity BUG assertion.
-- **Instrumentation**: Added trace2 metrics for "commits walked" and hyperfine benchmarks.
-- **Documentation**: New technical document (`paint-down-to-common.adoc`).
-
-The series is **merged-ready** and a **major win for `git merge-base` performance** in asymmetric histories. No regressions are known.
-
----
-
-### `git history squash` reaches feature-complete status
-**Thread: [PATCH v6 0/4] history: introduce `squash` subcommand**
-
-Harald Nordgren’s **v6 series** implementing `git history squash` (folding a commit range into its oldest commit while preserving descendant history) is now **feature-complete**. Key improvements since v5:
-- **Stricter input validation**: Rejects ranges whose oldest commit is a `fixup!`/`squash!`/`amend!` (since the marker’s target cannot lie inside the range).
-- **Support for multiple revision arguments**: Accepts compound ranges like `@~3.. ^topic`.
-- **`--reedit-message` template alignment**: Adopts `git rebase -i`’s squash-message template, with `fixup!` messages fully commented out and `squash!`/`amend!` bodies retained.
-- **Expanded documentation**: Clarifies the merge limitation and feature overview.
-
-The series is **ready for Junio’s final review**, with no open technical objections. The only remaining debate is whether `--reedit-message` (or `--edit`) should be the default—a **commit hygiene question** raised by Phillip Wood.
-
-### Key technical details
-
-- **Files**: `builtin/history.c`, `sequencer.c`/`sequencer.h`, `advice.c`/`advice.h`, `Documentation/git-history.adoc`, `t/t3455-history-squash.sh`
-- **New helpers**: `resolve_squash_range()`, `reject_fixupish_oldest()`, `find_interior_ref()`, `build_squash_message()`
-- **Behavior**: Rejects operations with interior refs by default, advising `--update-refs=head`.
+- **Code clarity**: Renamed counters (`parent1_count`, `parent2_count`, `mb_candidate_count`) and consolidated termination conditions in `paint_queue_get()`.
+- **Instrumentation**: Added trace2 metrics for "commits walked" and deterministic step-count assertions.
+The series is **ready for merging** and represents a **major performance win** for `git merge-base` in asymmetric histories.
 
 ---
 
-### `git cat-file --batch-command` final readiness
-**Thread: [PATCH v15 0/13] cat-file: add --batch-command remote-object-info**
-
-Pablo Sabater’s **14-patch GSoC series** implementing `git cat-file --batch-command` for remote object metadata queries is **technically complete** and ready for merging. The series introduces a new `remote-object-info` command that lets clients request metadata (e.g., object size) for up to 10,000 objects in a single command, reducing network overhead. Key features:
-- **Dynamic format validation**: Placeholders are validated based on server capabilities.
-- **Security hardening**: Strict protocol v2 enforcement and input validation.
-- **Test coverage**: 680 lines of new tests in `t1017-cat-file-remote-object-info.sh`.
-
-The series is a **significant step forward for partial clone workflows**, though a **philosophical debate** over silent failures versus explicit errors remains unresolved. Junio’s **final review is pending**.
+### `git history squash` reaches v6 with stricter input validation
+Harald Nordgren’s **4-patch series** implementing `git history squash` (folding a commit range into its oldest commit) reached **v6** with **stricter input validation** and support for multiple revision arguments (e.g., `@~3.. ^topic`). The series now:
+- **Rejects single-commit ranges** (e.g., `@^!`) with "nothing to squash."
+- **Rejects ranges with multiple bases** (e.g., a side branch forked before the range).
+- **Supports compound ranges** (e.g., `@~3.. ^topic`) to exclude commits on other branches.
+- **Improves test coverage** (550+ lines) for merge topologies and interior ref detection.
+The series is **functionally complete** and ready for Junio’s final review. A **philosophical debate** over whether `--reedit-message` should be the default remains unresolved.
 
 ---
 
-### CI fix for macOS hangs in `t5551`/`t5559`
-**Thread: macOS CI hang in t5551/t5559 – root cause and fix**
+### CI hang fix for `t5551`/`t5559` posted
+Jeff King (Peff) sent a **3-patch series** addressing macOS CI hangs in `t5551` and `t5559` caused by Apache’s 300-second timeout during `ls-refs` advertisements of 100,000 loose refs. The series:
+1. **Increases Apache’s `Timeout` directive to 600 seconds** (directly addressing the root cause).
+2. **Isolates the expensive "many-tags" test case** into a dedicated repository.
+3. **Packs refs after creating many tags** to reduce `ls-refs` advertisement time.
+The first patch alone resolves the CI hangs, while the latter two are optimizations. The series is **low-risk and ready for merging**.
 
-Jeff King’s **3-patch series** addressing macOS CI hangs in `t5551` and `t5559` is **ready for merging**. The series:
-1. **Increases Apache’s `Timeout` directive** from 300 to 600 seconds (patch 1/3).
-2. **Isolates the expensive "many-tags" test case** into a dedicated repository (patch 2/3).
-3. **Packs refs after creating many tags** to reduce `ls-refs` advertisement time (patch 3/3).
+---
 
-The first two patches are **uncontroversial and sufficient** to resolve the CI hangs; the third patch is **optional** and may be dropped. The series is **low-risk** and directly addresses the root cause (Apache bug 70131).
+### `git replay --linearize` regression resurfaces
+Johannes Schindelin reported a **post-merge regression** in `git replay --linearize`: the command **silently drops commits** when replaying a single branch containing merge commits (e.g., `master~2..master` with `--linearize --onto master~2`). The issue stems from the removal of the `replayed_base` parameter in v5, which was necessary to prevent commit dropping. Toon Claes is expected to send a follow-up patch to restore the mechanism or redesign how multi-branch histories are handled. The regression is **urgent** and must be fixed before the next release.
+
+---
+
+### `USE_NSEC` Meson parity debate expands
+The discussion around D. Ben Knoble’s patch adding a `nanosec` Meson option for `USE_NSEC` expanded into a **broader debate** about the knob’s viability. Jeff King’s testing confirmed that **modern Linux filesystems (ext4, ext2, XFS, vfat, CIFS, NTFS, FUSE) preserve nanosecond timestamps correctly**, obsoleting historical "racy Git" concerns. However, **interoperability risks** emerge when mixing `USE_NSEC` and non-`USE_NSEC` implementations (e.g., Git and JGit), which could trigger stat-dirty re-reads. Patrick Steinhardt proposed an **incremental path forward**: always compile nanosecond support into Git (when the platform allows it) and expose it via a runtime config knob (e.g., `core.useNsec`), but retain the current build-time default (`USE_NSEC` disabled). The proposal sidesteps auto-detection challenges but leaves the default value for the config knob unresolved.
+
+---
+
+### `excludes_file` libification guardrail resolved
+Tian Yuchen and Junio C Hamano resolved the final design question for the `excludes_file` migration series: **remove the redundant `repo->initialized` check from `repo_excludes_file()`** and rely entirely on `repo_config_values()` to enforce initialization. The series is now **ready for `next`**, though CI failures are expected as the stricter design surfaces previously hidden invalid callers. The resolution sets a precedent for future repository-aware getters (e.g., `attributes_file` migration).
 
 ---
 
 ## In brief
 
-**`excludes_file` libification** -- Tian Yuchen’s **2-patch series** moving the global `excludes_file` variable into `struct repo_config_values` is **ready for `next`** after resolving a guardrail debate. The series aligns with the broader `the_repository` removal initiative.
+**`git cat-file --batch-command`** -- Pablo Sabater’s **14-patch GSoC series** is technically complete and ready for merging. The series introduces a `remote-object-info` command for querying object metadata (e.g., size) from remotes without full downloads. A **philosophical debate** over silent failures versus explicit errors remains unresolved.
 
-**`gitk`/`git-gui` quiet builds** -- Harald Nordgren’s **2-patch series** aligning translation catalog generation with core Git’s quiet build conventions is **merged (gitk) or superseded (git-gui)**.
+**`git branch --set-upstream-to` usability fix** -- Harald Nordgren’s **2-patch series** improving error messages for common command-line mistakes (e.g., `git branch --set-upstream-to=origin main`) was **merged into `next`**. The series adds two new config options (`advice.setUpstreamFailure` and `advice.pushRepoLooksLikeRef`) and includes thorough test coverage.
 
-**`USE_NSEC` Meson parity** -- D. Ben Knoble’s patch adding a `nanosec` Meson option is **queued**, but Jeff King’s testing suggests the knob is obsolete on modern Linux. The discussion now centers on whether the default should flip to `true`.
+**`gitk`/`git-gui` quiet builds** -- Harald Nordgren’s **2-patch series** aligning translation catalog generation with core Git’s quiet build conventions was **merged (gitk) or superseded (git-gui)**. The changes will be proposed for upstream Git inclusion in the coming weeks.
 
-**French translation update** -- Jean-Noël Avila’s update for Git 2.55.0 includes a mass typo-fix pass alongside the usual string updates. The pull request covers 11 languages and is **ready for merging**.
+**`greplint.pl` regression** -- Junio C Hamano identified a **critical oversight** in the `greplint.pl` series: the proposed `test_grep` enhancement to error on missing files is redundant because `test_grep` already validates file existence. The discussion now focuses on **debugging why the existing safeguard fails** in `t3420-rebase-autostash.sh`.
 
-**`git history --reword` fix** -- Junio’s **bugfix patch** addressing a file stream leak in `git history --reword` is **merge-ready**.
+**Reftable memory leak fix** -- Jeff King’s **bugfix patch** for a memory leak in `reftable_writer_new` was **merged into `pu`** with a trivial conflict resolution. The fix moves the allocation after input validation to prevent leaks on invalid block sizes.
 
-**`greplint.pl` regression** -- Junio identified a **critical oversight** in the `greplint.pl` series: the existing `test_grep` implementation already checks for file existence, yet the bug in `t3420-rebase-autostash.sh` persists. The discussion has shifted to **debugging why the safeguard fails** rather than adding new ones.
+**HTTPS proxy regression fix** -- Johannes Schindelin’s **bugfix patch** for a regression rejecting HTTPS proxy URLs was **merged into `master`**. The fix adds a missing `return 0` in `set_curl_proxy_type()` to prevent fall-through to an error return.
+
+**French translation update** -- Jiang Xin’s **l10n pull request** for Git 2.55.0 updates `.po` files for 11 languages and includes a mass typo-fix pass for French. The pull request is **ready for merging**.
 
 ---
 
 ## On the radar
-
 - **`git replay --linearize` regression**: Toon Claes must send a follow-up patch to fix the silent commit dropping issue.
 - **`git repack --geometric --cruft`**: Taylor Blau’s RFC needs a fix for the reachability filtering flaw.
-- **`git history squash`**: Harald Nordgren’s **v6 series** awaits Junio’s final review.
-- **ODB abstraction**: Patrick Steinhardt’s `struct object_info` refactoring awaits substantive review.
-- **`--track=fetch` debate**: Harald Nordgren’s `--track=fetch` feature for `git checkout`/`git switch` remains stalled on workflow concerns.
+- **`git history squash`**: Harald Nordgren’s **v6 series** is ready for Junio’s final review.
+- **`USE_NSEC` runtime configuration**: Patrick Steinhardt’s proposal to make `USE_NSEC` runtime-configurable requires further discussion.
+- **`excludes_file` migration**: Tian Yuchen’s series is ready for `next` after resolving the guardrail debate.
