@@ -1,113 +1,149 @@
-Here’s the daily digest for the Git mailing list on **July 1, 2026 (UTC)**:
+# The Git Project Mailing List Daily Digest
+
+**2026/07/01 (Wednesday) – A Day of Convergence and Cleanup**
+
+The Git mailing list saw **134 emails across 29 threads** today, marking a busy but focused day. The volume was driven by **finalization of long-running feature series**, **performance optimizations**, **build system refinements**, and **CI infrastructure improvements**. The tone was **collaborative and forward-looking**, with several threads reaching resolution and multiple maintainer-level approvals. One **controversial reorganization proposal** remained in debate, but most discussions were technical and solution-oriented.
+
+**What you absolutely should not miss:**
+1. **`git cat-file --batch-command` gains `remote-object-info`** – Pablo Sabater’s **15-iteration, security-hardened series** is now **ready for merging** after Junio Hamano’s final review. This feature allows clients to query object metadata (e.g., size) from remote repositories without downloading full objects, using protocol v2 and dynamic capability-based validation. The implementation includes **680 lines of new tests** and strict protocol enforcement.
+2. **`git history drop` lands in `next`** – Patrick Steinhardt’s **11-patch series** introducing the `drop` subcommand to the experimental `git history` command is now **fully merged** after resolving a critical ref-resolution dispute. The command removes a commit and replays its descendants, with conflict detection, bare repository support, and **561 lines of test coverage**.
+3. **Commit-reach optimization delivers 100-1000x speedups** – Kristofer Karlsson’s **10-patch series** optimizing `paint_down_to_common()` for one-sided histories is **ready for `next`** after a procedural rebase. The optimization terminates early when one side of a merge-base query is exhausted, eliminating unnecessary traversal of large histories.
 
 ---
 
-### **The day in brief**
-A busy day with **134 emails across 29 threads**, dominated by **feature finalizations, regression fixes, and philosophical debates** about Git’s CLI design. The standout developments:
-1. **`git history drop`** (Patrick Steinhardt) is now **technically complete** after resolving a critical ref-resolution bug, with Junio’s green light for merging.
-2. **`git replay --linearize`** (Toon Claes) was **merged to `master`** but faces **post-merge scrutiny** for a silent commit-dropping regression and a heated debate over CLI consistency with `git rebase`.
-3. **`git history squash`** (Harald Nordgren) is ready for Junio’s final review, but a **last-minute template formatting debate** may delay merging.
-4. **Rustification efforts** saw progress with a **build system fix** for macOS credential helpers and a **quadratic-time scalability fix** for the reftable backend.
-5. **Coverity-driven leak fixes** (Johannes Schindelin) and **Bloom filter leak fixes** (Jeff King) advanced, with most patches approved for `next`.
+## Notable Threads
 
-The day’s tone was **pragmatic but contentious**—technical consensus was reached on most patches, but **CLI design debates** (e.g., `--linearize` vs. `--rebase-merges`) revealed deeper tensions about **UX consistency vs. intentional divergence**.
+### `git cat-file --batch-command` gains `remote-object-info` support
+**Headline:** *Security-hardened remote object metadata queries land after 15 iterations*
+**Author:** Pablo Sabater
+**Status:** **Ready for merging** (Junio Hamano approved; all feedback addressed)
 
----
+Pablo Sabater’s **15-iteration series** adds a `remote-object-info` command to `git cat-file --batch-command`, allowing clients to query object metadata (initially just size) from remote repositories without downloading full objects. The implementation uses **protocol v2** and includes **dynamic capability-based validation** to prevent information leaks. Key security measures:
+- **Runtime filtering** of format placeholders against server-advertised capabilities
+- **10,000-object batch limit** to prevent DoS
+- **Strict protocol v2 enforcement** and response parsing
+- **680 lines of new tests** in `t/t1017-cat-file-remote-object-info.sh`
 
-### **Notable threads**
+The series includes **13 patches** covering memory safety fixes, test infrastructure refactoring, server capability advertisement, and the core client-side implementation. Junio Hamano’s review identified a **critical refactoring flaw** in patch 5/13 (uninitialized local variable and lingering global variable), which Pablo addressed in the final version. The **error handling philosophy** (silent continuation vs. explicit failure) remains documented but unresolved, as it is a philosophical difference rather than a technical blocker.
 
-#### **1. `git history drop` lands after critical bugfix**
-**Headline**: *Patrick Steinhardt’s 11-patch series introducing `git history drop` is now ready for merging after resolving a high-impact ref-resolution flaw in `find_head_tree_change()`.*
-**What happened**:
-- The series modernizes Git’s reset API, advances `the_repository` removal, and adds a **new subcommand to remove a commit and replay its descendants**.
-- A **dispute over ref resolution** (Junio vs. Patrick) was resolved in v8 by adding `RESOLVE_REF_READING` to `refs_resolve_ref_unsafe()`, ensuring correct HEAD movement detection.
-- Junio’s final reply: *"OK, sounds good, will replace"*—effectively unblocking the series.
-**Why it matters**:
-  - This is a **major step for Git’s history-editing toolkit**, enabling safer commit removal without the conflict stops of `git rebase`.
-  - The fix demonstrates **rigorous review**—the bug could have caused silent repository inconsistencies.
-**Files touched**: `builtin/history.c`, `reset.c`, `revision.c`, `replay.c`.
-**Next steps**: Junio to queue for `next`.
+**Why it matters:** This feature addresses a real use case (querying object sizes without full downloads) while maintaining Git’s security and compatibility standards. The dynamic capability-based validation sets a precedent for future protocol extensions.
 
 ---
 
-#### **2. `git replay --linearize` merged, but regressions and CLI debate erupt**
-**Headline**: *Toon Claes’s `--linearize` option for `git replay` was merged to `master`, but post-merge testing revealed a **silent commit-dropping regression** and sparked a **philosophical debate** about CLI consistency with `git rebase`.*
-**What happened**:
-- The feature flattens merge commits into linear history, but **v5 introduced a regression** where single-branch replays with merges drop intermediate commits.
-- **Johannes Schindelin identified the issue** with a test case, confirming the root cause: v5’s base-selection logic removed the `replayed_base` mechanism.
-- **CLI debate**: Patrick Steinhardt argued for consistency with `git rebase`’s `--rebase-merges` syntax, while Johannes and Toon defended `--linearize` as clearer for the feature’s scope (producing a **single linear sequence**).
-- **Process-level outcome**: Patrick conceded the UX argument but demanded **explicit justification in commit messages** for any divergence from `git rebase`.
-**Why it matters**:
-  - The regression is **high-priority**—silent data loss is unacceptable, and a follow-up patch is urgently needed.
-  - The CLI debate reflects **broader tensions** in Git’s design: should new commands follow established patterns (even if flawed) or prioritize clarity?
-**Files touched**: `replay.c`, `Documentation/git-replay.txt`.
-**Next steps**: Toon to send a **regression fix** and **document the CLI rationale** in the commit message.
+### `git history drop` subcommand lands
+**Headline:** *Commit-dropping capability added to experimental `git history` command*
+**Author:** Patrick Steinhardt
+**Status:** **Merged into `next`** (all feedback addressed; Junio Hamano approved)
+
+Patrick Steinhardt’s **11-patch series** introduces the `git history drop` subcommand, which removes a commit from history and replays its descendants on top of its parent. The implementation includes:
+- **Conflict detection** (aborts if replaying descendants would cause conflicts)
+- **Bare repository support**
+- **Index/worktree updates** when `HEAD` moves
+- **Ref updates** (configurable via `--update-refs=(branches|head)`)
+- **561 lines of test coverage** in `t/t3454-history-drop.sh`
+
+The series also **modernizes the reset API**, advances `the_repository` removal, and eliminates code duplication between replay and history code paths. A **critical ref-resolution dispute** in `find_head_tree_change()` was resolved in v8 by adding `RESOLVE_REF_READING` to `refs_resolve_ref_unsafe()`, ensuring correct HEAD movement detection in detached-HEAD states.
+
+**Why it matters:** This expands Git’s history-editing toolkit alongside `git rebase` and `git commit --amend`, with a focus on conflict safety and bare repository support. The reset API modernization is a stepping stone for future work.
 
 ---
 
-#### **3. `git history squash` ready for final review, but template debate lingers**
-**Headline**: *Harald Nordgren’s `git history squash` series is code-complete, but a **last-minute debate** over commit-message template formatting may delay merging.*
-**What happened**:
-- The series folds a range of commits into the oldest one via a **single three-way merge**, avoiding rebase’s repeated conflict stops.
-- **Phillip Wood proposed a cleaner template** for `--reedit-message`, omitting `fixup!` noise and numbered markers to reduce clutter.
-- **Junio challenged the divergence** from `git rebase -i`’s template, asking for evidence of usability problems.
-- **Phillip provided a concrete example** of the current template’s clutter, and Junio proposed a **minimalist alternative** (numbered list of subjects + editable message body).
-**Why it matters**:
-  - The template debate is **surprisingly contentious**—it’s a small change, but it touches on **Git’s commitment to UX consistency**.
-  - The series is **otherwise ready**, with all prior feedback addressed (merge commit handling, input validation, recoverability concerns).
-**Files touched**: `builtin/history.c`, `Documentation/git-history.adoc`.
-**Next steps**: Harald to **adopt Junio’s minimalist template** or justify further divergence.
+### Commit-reach optimization delivers 100-1000x speedups
+**Headline:** *Merge-base queries terminate early for one-sided histories*
+**Author:** Kristofer Karlsson
+**Status:** **Ready for `next`** (Junio Hamano requested rebase on `kk/commit-reach-find-all-fix`)
+
+Kristofer Karlsson’s **10-patch series** optimizes `paint_down_to_common()` to terminate early when one side of a merge-base query exhausts its commit queue. The optimization yields **100-1000x speedups** for asymmetric queries (e.g., repositories with import grafts or shallow histories) by eliminating unnecessary traversal. Key changes:
+- **New `paint_state` struct** with per-side counters (`parent1_count`, `parent2_count`, `mb_candidate_count`)
+- **Early termination** when `(!state->parent1_count || !state->parent2_count) && !state->mb_candidate_count`
+- **Documentation** in `paint-down-to-common.adoc` explaining the algorithm and termination conditions
+- **Test coverage** for edge cases (self/duplicate/pending-stale/infinity-both-sides, diamond topologies)
+
+The series is **fully reviewed** and **regression-free**, with benchmarks showing dramatic improvements (e.g., `merge-base --all v4.8 v4.9` on the Linux kernel repo drops from **3.25s to 17ms**). Junio Hamano requested a **procedural rebase** on the already-merged `kk/commit-reach-find-all-fix` topic to resolve a merge conflict in patch 7/10 and a test failure in `t6600`.
+
+**Why it matters:** This addresses a long-standing performance bottleneck in asymmetric merge-base queries, which are common in large repositories with shallow histories or import grafts.
 
 ---
 
-#### **4. Rustification: Build system fix and reftable scalability breakthrough**
-**Headline**: *Rust integration saw two key developments: a **build system fix** for macOS credential helpers and a **quadratic-time scalability fix** for the reftable backend.*
-**What happened**:
-- **Build system**: Brian m. carlson **reversed an earlier assessment** that a dependency on `libgit.a` was spurious, confirming the Rust code in `src/hash.rs` **does** need the C library for `cargo test`.
-- **Reftable scalability**: Kristofer Karlsson **identified and fixed a quadratic-time bottleneck** in bulk ref deletion/re-creation by exposing tombstones to iterator bounds checks. Runtime for 16,000 refs dropped from **7.1s to 0.258s**.
-**Why it matters**:
-  - The build system fix **prevents a potential breakage** in Rust/C interop.
-  - The reftable fix is a **major performance win** for large repositories, addressing a long-standing scalability issue.
-**Files touched**: `Makefile`, `reftable/merged.c`, `reftable/refs.c`.
-**Next steps**: Kristofer to send a **formal patch** for the reftable fix; the build system fix to be merged as-is.
+### Source tree reorganization: `lib/` directory proposal
+**Headline:** *Patrick Steinhardt proposes moving `libgit.a` components into `lib/`*
+**Author:** Patrick Steinhardt
+**Status:** **Debate ongoing** (Junio Hamano and Phillip Wood skeptical; Kaartic Sivaraam proposes UX mitigation)
+
+Patrick Steinhardt’s **RFC v3** proposes reorganizing Git’s source tree by moving all `libgit.a` components into a new `lib/` directory to reduce root-directory clutter. The series includes:
+- **Preparatory refactoring** (e.g., adjusting include paths in `t/helper/test-example-tap.c`)
+- **Mechanical move** of ~700 files (core subsystems like object handling, refs, diff, merge) into `lib/`
+
+**Key arguments:**
+- **Proponents** (Patrick, Oswald Buddenhagen, Johannes Schindelin) argue the reorganization improves discoverability and enforces coding conventions (e.g., avoiding `the_repository` or `die()` in library code).
+- **Opponents** (Junio Hamano, Phillip Wood, SZEDER Gábor) highlight **workflow disruption** (e.g., `git log --follow` stops at the rename barrier, rebasing challenges) and question whether the benefits justify the friction.
+
+**New proposal:** Kaartic Sivaraam suggested adding a hint to `git show` when a file appears to have been renamed (e.g., suggesting `lib/wt-status.c` instead of `wt-status.c`), offering a potential middle ground.
+
+**Why it matters:** This is a **structural change** with implications for contributor workflows, downstream forks, and the project’s long-term maintainability. The debate centers on whether the benefits (discoverability, coding conventions) outweigh the costs (workflow disruption, rebasing challenges).
 
 ---
 
-#### **5. Coverity and Bloom filter leak fixes advance**
-**Headline**: *Two cleanup series—**Coverity-driven leak fixes** (Johannes Schindelin) and **Bloom filter leak fixes** (Jeff King)—saw significant progress, with most patches approved for `next`.*
-**What happened**:
-- **Coverity fixes**: 13 patches targeting resource leaks, file descriptor bugs, and process handle ownership. **Patrick Steinhardt raised concerns** about two patches (ineffective leak fix in `run_diff_files()`, fragility in `get_superproject_working_tree()`), but Junio signaled willingness to queue the series.
-- **Bloom filter fixes**: Three patches plugging leaks in `bloom.c`, `revision.c`, and `line-log.c`. **Derrick Stolee and Junio approved all patches**, calling them "obviously correct."
-**Why it matters**:
-  - These are **low-risk, high-impact cleanups** that improve Git’s robustness without changing behavior.
-  - The Coverity series is **particularly valuable** for catching subtle error-path bugs that could cause crashes or resource exhaustion.
-**Files touched**: `loose.c`, `run-command.c`, `bloom.c`, `revision.c`, `line-log.c`, and others.
-**Next steps**: Junio to queue both series for `next` after addressing the two Coverity patch concerns.
+### Coverity-driven leak fixes
+**Headline:** *Johannes Schindelin’s 13-patch series plugs resource leaks*
+**Author:** Johannes Schindelin
+**Status:** **Ready for merging** (Junio Hamano: "looking good"; all feedback addressed)
+
+Johannes Schindelin’s **13-patch series** addresses resource leaks and error-path bugs flagged by Coverity in core Git. The patches plug leaks in:
+- **Loose-object handling** (`loose.c`)
+- **Run-command API** (`run-command.c`)
+- **Diff machinery** (`diff-lib.c`, `line-log.c`)
+- **Directory traversal** (`dir.c`)
+- **Submodules** (`submodule.c`)
+- **Worktree creation** (`builtin/worktree.c`)
+- **IMAP sending** (`imap-send.c`)
+- **Reftable backend** (`reftable/table.c`)
+- **Fsmonitor daemon** (`builtin/fsmonitor--daemon.c`)
+- **Windows process termination** (`compat/mingw.c`)
+
+**Key fixes:**
+- **Patch 1/12 v2**: Replaces unsafe `errno`-based error detection with `ferror(fp)` to reliably distinguish between EOF and I/O errors in `load_one_loose_object_map()`.
+- **Patch 12/12**: Enforces clear handle ownership in Windows process termination logic, plugging a handle leak and latent use-after-free.
+
+The series is **mechanical and uncontroversial**, with no user-visible behavior changes. Junio Hamano’s review identified a **critical correctness issue** in patch 1/12 (unsafe `errno` usage), which Johannes addressed in v2. The series is now **ready for merging**.
+
+**Why it matters:** This is part of a broader effort to improve Git’s memory hygiene and CI infrastructure for leak detection. The fixes are low-risk and suitable for early-cycle merging.
 
 ---
 
-### **In brief**
-- **`git cat-file --batch-command` remote object metadata** (Pablo Sabater): **v15 ready for merging**, with all prior feedback addressed. Adds `remote-object-info` to query object sizes from remotes without downloading full objects.
-- **`excludes_file` libification** (Tian Yuchen): **Phase 2 complete**, removing the guardrail check and unblocking merging. Part of the `the_repository` removal effort.
-- **macOS CI hang fix** (Jeff King): **Merged**, increasing Apache’s `Timeout` to 600s to resolve HTTP/2 stalls. GitLab CI badge added to `README.md`.
-- **`git blame -b` output formatting** (René Scharfe): **Patch ready**, aligning hash lengths with `core.abbrev` to fix a usability friction in manual workflows.
-- **`git repo` GSoC project** (K Jayatheerth): **Week 5 update**—still in research/design phase, with no patches yet.
-- **`git history` GSoC project** (Pablo Sabater): **Week 5 update**—implementation work underway for `git cat-file --remote-object-info`.
+## In Brief
+
+### Build System and CI
+- **Rustification build system adjustment** – Shardul Natu and Koji Nakamaru’s **v4 series** for macOS Universal Binary support is **ready for integration**. The series ensures the credential helper links against Rust libraries and introduces the `RUST_TARGETS` environment variable for multi-architecture builds.
+- **CI Dockerized PID limits** – Johannes Schindelin’s patch raises PID limits in Dockerized CI jobs for private GitHub repositories, resolving "cannot create async thread" errors. The fix is **ready for merging**.
+- **Meson build race fix** – D. Ben Knoble’s patch fixes a build race in generating `hook-list.h` by restoring it to the `builtin_sources` list. The fix is **ready for merging**.
+
+### Performance and Correctness
+- **Bloom filter leak fixes** – Jeff King’s **3-patch series** plugs memory leaks in Git’s Bloom-filter code. The series is **ready for `next`** and includes fixes for `bloom.c`, `revision.c`, and `line-log.c`.
+- **`git blame -b` output formatting** – René Scharfe’s patch fixes a usability issue where `git blame -b` reserved an extra hex digit for an unused caret marker, causing hashes to exceed `core.abbrev`. The fix is **ready for merging**.
+- **HTTP/HTTPS authentication regression** – A user reported that HTTP/HTTPS authentication using domain account passwords broke in Git for Windows 2.55.0.windows.1. The issue is **Git for Windows-specific** and redirected to the Git for Windows issue tracker ([#6308](https://github.com/git-for-windows/git/issues/6308)).
+
+### Documentation and UX
+- **`git history squash` template debate** – Harald Nordgren’s series adding a `squash` subcommand to `git history` sparked a debate about whether the commit-message template should diverge from `git rebase -i`’s format. Phillip Wood argued for a cleaner design, while Junio Hamano requested evidence of usability problems with the current format. The discussion is **converging on a minimal template** that omits fully discarded messages.
+- **`git repo` GSoC update** – K Jayatheerth’s weekly update on the `git repo` command development remains in the research/design phase, with no on-list technical discussion or patches.
 
 ---
 
-### **On the radar**
-1. **`git replay --linearize` regression**: Silent commit dropping in single-branch replays. **Urgent follow-up needed**.
-2. **`git history squash` template debate**: Junio’s minimalist proposal vs. Phillip’s cleaner design. **Decision pending**.
-3. **Reftable quadratic-time fix**: Kristofer Karlsson’s patch to expose tombstones to iterator bounds checks. **Performance-critical**.
-4. **CLI design consistency**: Patrick Steinhardt’s demand for **explicit justification in commit messages** for any divergence from `git rebase`’s syntax. **Process-level impact**.
-5. **`git repo` GSoC project**: Still no patches or design documents on-list. **Monitor for transition to implementation**.
+## On the Radar
+
+### Reftable backend performance
+- **Quadratic-time behavior in bulk ref deletion** – Kristofer Karlsson proposed a fix for a quadratic-time bottleneck in the reftable backend’s tombstone handling. The fix reduces runtime from **O(n²) to O(n)** (e.g., 8,000 refs: **14.93s → 0.145s**) but adds code complexity. The patch’s **real-world impact remains unresolved**, as it primarily benefits edge cases (bulk ref deletion without compaction).
+
+### CI Infrastructure
+- **Leak detection in `linux-TEST-vars`** – Jeff King and Patrick Steinhardt proposed consolidating `linux-reftables-leaks` and `linux-TEST-vars` into a single job (`linux-TEST-vars-leaks`) to improve leak detection. The overhead is benchmarked at **~3x slowdown**, deemed acceptable for targeted use.
+
+### ODB Abstraction
+- **`ps/odb-drop-whence` and `ps/odb-generalize-prepare`** – Patrick Steinhardt’s ODB abstraction topics are **ready for `next`** after minor rerolls. These series remove the `whence` field from `struct object_info` and introduce `odb_prepare()` to standardize ODB source opening.
 
 ---
 
-### **Editorial note**
-Today’s traffic revealed **two recurring themes**:
-1. **CLI design tensions**: The `--linearize` vs. `--rebase-merges` debate and the `git history squash` template discussion highlight a **growing divide** between UX clarity and consistency. Junio’s insistence on evidence for divergence suggests **future CLI changes will require stronger justification**.
-2. **Post-merge regression scrutiny**: The `git replay --linearize` regression was caught **after merging**, underscoring the need for **more rigorous post-merge testing**—especially for features with complex edge cases.
-
-The day’s work was **productive but not flashy**—most patches were **incremental improvements** rather than groundbreaking features. The **Rustification and reftable scalability fixes** stand out as **long-term wins**, while the **CLI debates** may shape Git’s evolution for years to come.
+## The Day in Numbers
+- **134 emails** across **29 threads**
+- **5 series ready for merging** (`git cat-file --batch-command`, `git history drop`, commit-reach optimization, Coverity fixes, Rustification build system)
+- **1 controversial reorganization proposal** (`lib/` directory)
+- **3 GSoC projects** (`git repo`, `git cat-file --remote-object-info`, `git history` extensions)
