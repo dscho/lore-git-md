@@ -1,63 +1,140 @@
-# The Git Project Mailing List Daily Digest
+# The Git Mailing List Daily Digest for 2026/06/26
 
-**2026/06/26**
+## The day in brief
 
-**The day in brief**
-A busy day on the Git mailing list with 86 emails across 17 threads. The standout developments: a security-hardened `git cat-file --batch-command` series reaches final readiness; Patrick Steinhardt's ref backend refactoring lands in `next`; and a critical regression surfaces in a performance optimization for merge-base calculations. The day also saw progress on ODB abstraction, Rustification, and repack machinery, alongside routine translation updates and CI fixes.
+A busy day on the Git mailing list (86 emails across 17 threads) saw **significant progress on several major efforts**: the `git replay --linearize` series reached v5 with all architectural concerns addressed, Patrick Steinhardt's reference backend refactoring was merged to `next`, and the `paint_down_to_common()` optimization series advanced with a critical regression identified and being fixed. **Key milestones**: the GSoC `git cat-file --batch-command` series nears completion, and Taylor Blau proposed a complex RFC to combine geometric and cruft repacking.
 
 ---
 
 ## Notable threads
 
-### **`git cat-file --batch-command` remote object info reaches final readiness**
-Pablo Sabater's GSoC project to add remote object metadata queries to `git cat-file --batch-command` is now complete at v14, with all substantive feedback addressed. The series implements a security-hardened protocol v2 extension allowing clients to request object metadata (currently size) from remotes without downloading full objects. Dynamic format placeholder validation adapts to server capabilities, and comprehensive memory safety improvements were added post-v14. Junio Hamano and Karthik Nayak identified minor documentation nits in the `strtoul_szt()` helper and function relocation commits, which Pablo acknowledged and will correct. The series demonstrates cross-platform correctness and is ready for merging, pending these final documentation tweaks.
+### GSoC: `git cat-file --batch-command` remote object metadata (v14)
+**Headline**: Final review nits addressed; series nears completion
+
+The Google Summer of Code project to implement `git cat-file --batch-command` for remote object metadata queries saw its **fourteenth iteration** with all substantive feedback addressed. Today's traffic focused on **minor documentation and implementation nits** in the `strtoul_szt()` helper and function relocation patches.
+
+Pablo Sabater responded to Junio Hamano's review of the `strtoul_szt()` helper, proposing a revised implementation using `uintmax_t` to handle platforms where `unsigned long` might be smaller than `size_t`. The discussion remains narrowly technical and uncontroversial. Karthik Nayak and Chandra Pratap contributed surface-level reviews on function naming consistency and commit message clarity.
+
+**Status**: The series is **functionally complete** and addresses all prior technical feedback. Only minor documentation updates remain before merging. The implementation provides a **security-hardened** way to query object metadata (currently size) from remotes without full downloads, with dynamic format placeholder validation that adapts to server capabilities.
 
 ---
 
-### **Ref backend refactoring lands in `next`**
-Patrick Steinhardt's 11-patch series modernizing Git's reference backend infrastructure has been merged into Junio Hamano's `next` branch as topic `ps/refs-onbranch-fixes`. The series resolves recursive initialization issues triggered by `includeif.onbranch` conditions through a lazy-loading design that defers write-config parsing until the first write operation. Jeff King (Peff) endorsed the architectural approach, calling it "good" and "not too painful to maintain," while Justin Tobler gave final approval after Patrick addressed minor feedback. The changes span 34 files and introduce deferred write-config parsing, dynamic write option passing, and a recursion guard. This foundational work enables future backend modularity and addresses long-standing initialization-order constraints.
+### `git replay --linearize` (v5)
+**Headline**: Architectural concerns resolved; series ready for final review
+
+Toon Claes **released v5** of the `--linearize` option for `git replay`, addressing all prior architectural concerns about the boolean refactoring and interface scope. The new version **reverts the controversial enum-to-boolean conversion** and replaces it with detailed code comments explaining the base-selection logic in `pick_regular_commit()`. A **bug in `--onto` handling** when replaying multiple divergent branches was fixed, and test coverage was expanded.
+
+Junio Hamano reviewed the first patch, noting a minor style nit in a `BUG()` message, while the **third patch** drew attention to a **behavioral difference** from `git rebase --no-rebase-merges`: where rebase rewrites both branches of a divergent merge, replay drops one branch entirely. Junio suggested documenting this behavior and adding a test to lock in the current semantics.
+
+**Status**: The series is **technically complete** and addresses all prior feedback. The interface design question (whether to mirror `git rebase`'s three-mode design now or later) remains open but does not block merging. Junio's "Will merge to 'next'" approval from v4 stands contingent on the resolved refactoring concerns.
 
 ---
 
-### **Critical regression in merge-base optimization**
-A performance optimization series for `paint_down_to_common()` hit a snag when Junio C Hamano identified a critical regression in patch 7/8. The patch, which implements early termination when one side of a merge-base query exhausts its commit queue, incorrectly widened a generation-monotonicity BUG assertion to fire unconditionally, breaking correctness when `min_generation` is not set. The regression caused test failures in `t6600-test-reach.sh` (test 12, `get_merge_bases_many`), where the assertion fired instead of returning expected merge bases. Kristofer Karlsson and the author (Tian Yuchen) acknowledged the bug and plan to rework the logic for v4, either by reverting the problematic change or unifying halt conditions while preserving correctness. The rest of the series—including edge-case tests, trace2 instrumentation, and documentation—remains unaffected and ready for review.
+### Reference backend refactoring: `ps/refs-onbranch-fixes` (v6)
+**Headline**: Series merged to `next`; lazy-loading design approved
+
+Patrick Steinhardt's **eleven-patch refactoring series** to resolve recursive initialization issues in Git's reference backend **was merged to `next`** under the new topic name `ps/refs-onbranch-fixes`. The series implements a **lazy-loading design** that defers write-config parsing until the first write operation, eliminating early config reads that could trigger recursion via `includeif.onbranch`.
+
+Jeff King (Peff) provided **final architectural approval**, calling the lazy-loading approach "good" and "not too painful to maintain." The series addresses the root cause of issues where `git commit` failed to respect `onbranch`-scoped settings like `core.logAllRefUpdates`. Key changes include:
+- **Deferred write-config parsing** (e.g., `core.logAllRefUpdates`, `reftable.blockSize`)
+- A **recursion guard** in `get_main_ref_store()`
+- **Dynamic write option passing** for the reftable backend
+- Fixes for latent memory leaks in `chdir_notify` and `repo_clear()`
+
+**Status**: **Merged to `next`** and poised to graduate to `master` unless broader testing reveals issues. This represents a **foundational shift** in how ref backends interact with config, with implications for future backend modularity.
 
 ---
 
-### **ODB abstraction advances with promisor object handling**
-Patrick Steinhardt's series generalizing promisor object handling in connectivity checks has been fully reviewed and approved. The 4-patch series refactors Git's connectivity logic to remove hardcoded packfile assumptions, enabling ODB backend independence. Christian Couder and Junio Hamano gave final approval to the fourth patch, which replaces `find_pack_entry_one()` with the generic `odb_for_each_object_ext()` API. This work is critical for Patrick's broader ODB abstraction effort and paves the way for pluggable storage backends. The changes are confined to `connected.c` and the test suite, with no user-facing behavior changes.
+### `paint_down_to_common()` optimization (v3)
+**Headline**: Regression identified; series blocked pending fix
+
+The **post-merge follow-up series** to optimize `paint_down_to_common()` for one-sided histories hit a snag when Junio C Hamano identified a **critical regression** in patch 7/8. The widened generation-monotonicity BUG assertion fires unconditionally, breaking correctness when `min_generation` is not set. The test suite caught the issue in `t6600-test-reach.sh` (test 12, `get_merge_bases_many`).
+
+Kristofer Karlsson acknowledged the regression and plans to rework the logic for v4, either by reverting the problematic change or unifying halt conditions while preserving correctness. The rest of the series (patches 1–6/8 and 8/8) remains unaffected and ready for merging. The optimization yields **100-1000x speedups** for asymmetric merge-base queries (e.g., repositories with import grafts).
+
+**Status**: **Blocked on regression fix** in patch 7/8. The core optimization is sound, and the test suite robustly catches edge cases. Derrick Stolee praised the trace2 instrumentation (patch 4/8) as "clean" and "over-achieve[ing]."
 
 ---
 
-### **Rustification: hash algorithm validation in ObjectMap**
-A standalone patch from the Rustification effort adds validation for hash algorithms in `ObjectMap::insert()`. The patch enforces the invariant that object IDs passed to `insert()` must use expected hash algorithms (one for storage, one for compatibility), returning a new `ObjectMapInsertError` enum for mismatched or unknown algorithms. The change is narrowly scoped to `src/loose.rs` and includes expanded test coverage. This correctness fix addresses a previously unchecked assumption in the loose object map, a core Rust data structure used for object mapping.
+### `git history squash` (v5)
+**Headline**: Edge cases and input validation debated
+
+Harald Nordgren's `git history squash` series, which folds commit ranges into a single commit, saw **substantive review** from Phillip Wood on edge cases and input validation. The discussion focused on:
+- **Single-commit ranges** (e.g., `@^!`), which are currently accepted but meaningless
+- **Non-ancestor ranges** (e.g., `origin/seen^2^!` from `master`), which may confuse users
+- **`fixup!`/`squash!`/`amend!` commit handling**
+- **Merge commits with external parents**
+
+Harald agreed to tighten input validation and clarify edge-case behavior in v6. Junio C Hamano weighed in on input syntax flexibility, demonstrating how `HEAD^{/pattern}` could support more complex use cases. The series is **code-complete** but may require another iteration to address these usability concerns.
+
+**Status**: **Ready for Junio's final assessment** once edge-case handling is clarified. The core functionality (three-way merge of a range against its oldest commit's parent) is uncontested.
+
+---
+
+### macOS CI hangs in t5551/t5559
+**Headline**: Root cause identified as Apache timeout; mitigation proposed
+
+The long-running thread about macOS CI hangs in `t5551` and `t5559` reached a breakthrough when Patrick Steinhardt **diagnosed the root cause** as Apache's 300-second timeout being hit during `ls-refs` advertisements of 100,000 loose refs. The failure mode has shifted from HTTP/2 stalls to `curl 18` mid-transfer aborts, and similar failures are now observed in Linux CI.
+
+The discussion converged on **increasing Apache's `Timeout` directive** as the most pragmatic solution. Michael Montalbo confirmed that a longer timeout resolves the issue in practice, and Jeff King (Peff) endorsed the approach as a "fine mitigation" that reduces failures to near-zero. No patch has been proposed yet, but the consensus is clear.
+
+**Status**: **Mitigation strategy agreed**; patch forthcoming. The underlying Apache bug (70131) affects both HTTP/1.1 and HTTP/2, so an upstream fix would not fully resolve the issue.
 
 ---
 
 ## In brief
 
-**Reftable security hardening** -- Patrick Steinhardt's 11-patch series hardens the reftable backend against corrupted files, fixing OOB reads/writes, NULL pointer dereferences, and aborts during parsing. Christian Couder suggested a minor test refactoring to reduce duplication.
+### **Reftable hardening (v1)**
+Patrick Steinhardt's **eleven-patch series** to harden the reftable backend against corrupted files saw **surface-level review** from Christian Couder on test code hygiene. The series fixes out-of-bounds reads/writes, NULL pointer dereferences, and uninitialized memory usage, and adds **libFuzzer-based fuzzing infrastructure** to prevent regressions.
 
-**`git history squash` nears completion** -- Harald Nordgren's series to add `git history squash` for folding commit ranges received substantive feedback from Phillip Wood on edge cases (single-commit ranges, non-ancestor ranges, `fixup!`/`squash!` handling). Harald plans to address these in v6.
+**Status**: **Needs review**. The fuzzing infrastructure is reusable for other subsystems.
 
-**Git 2.55.0 translation cycle closes** -- Junio Hamano reminded translators that the submission deadline for Git 2.55.0 is June 27, with the release scheduled for June 29.
+### **ODB abstraction: `ps/odb-generalize-prepare` (v1)**
+Patrick Steinhardt's **two-patch series** to generalize the `reprepare()` callback into a more flexible `prepare()` callback saw **substantive review** from Toon Claes. Questions were raised about downcasting behavior and flag usage in the new API.
 
-**CI fixes for macOS hangs** -- Michael Montalbo and Jeff King (Peff) reached consensus on increasing Apache's `Timeout` directive to mitigate CI hangs in `t5551` and `t5559` caused by Apache bug 70131. The fix avoids client-side mitigations and directly addresses the root cause.
+**Status**: **Needs review**. The refactoring enables `git grep` to work with pluggable ODB backends.
 
-**`git repack` RFC combines geometric and cruft modes** -- Taylor Blau's 10-patch RFC proposes combining `--geometric` and `--cruft` repack modes, introducing `--stdin-packs=follow-reachable` and `--refs-snapshot` for precise reachability filtering. Junio identified a correctness issue in the two-phase traversal logic that could retain unreachable objects.
+### **Promisor object connectivity checks (v3)**
+Patrick Steinhardt's **five-patch series** to generalize promisor object handling in connectivity checks was **fully approved** by Christian Couder. The series replaces `find_pack_entry_one()` with `odb_for_each_object_ext()` and adds a test to verify the optimized promisor check and fallback behavior.
 
-**`excludes_file` migration into `repo_config_values`** -- Tian Yuchen's series to move the global `excludes_file` variable into `struct repo_config_values` received critical feedback from Junio Hamano on a temporary guard and from SZEDER Gábor on a build-breaking unused parameter. Junio proposed a pragmatic fix using the `UNUSED` macro.
+**Status**: **Ready for `next`**. Depends on `ps/odb-source-packed`.
 
-**`git history` file stream leak fixed** -- Junio Hamano submitted a merge-ready patch fixing an inefficient file-handling pattern and stream leak in `git history --reword`, improving Windows compatibility.
+### **Git 2.55.0 translation coordination**
+Jiang Xin initiated the Git 2.55.0 localization cycle, noting **125 new strings** requiring translation. Junio C Hamano reminded translators that the submission deadline is June 27.
 
-**Build system quieting for gitk and git-gui** -- Harald Nordgren and Johannes Sixt discussed integration timing for patches that align gitk and git-gui's translation catalog generation with core Git's quiet build conventions.
+**Status**: **Ongoing**. Translators are finalizing submissions.
 
-**`git replay --linearize` fully merged** -- Toon Claes's series introducing `--linearize` to `git replay` was merged, with Junio Hamano identifying a post-merge behavioral edge case: merge commit divergence handling differs from traditional flattening rebase.
+### **`gitk` and `git-gui` build system quieting**
+Harald Nordgren's **two-patch series** to align `gitk` and `git-gui`'s translation catalog generation with core Git's quiet build conventions was **merged** for `gitk` and superseded for `git-gui` by Johannes Sixt's pre-existing work. Harald asked about integration timing.
+
+**Status**: **Merged for `gitk`**; `git-gui` changes already present.
+
+### **`excludes_file` migration (v2)**
+Tian Yuchen's **two-patch series** to move the global `excludes_file` variable into `struct repo_config_values` saw **substantive review** from Junio C Hamano and SZEDER Gábor. Junio questioned the temporary guard (`if (repo != the_repository)`) added to avoid BUG() assertions in uninitialized submodules, while Gábor identified a **build-breaking issue** with an unused parameter in the getter function.
+
+**Status**: **Needs reroll**. The series is part of the ongoing libification effort.
+
+### **Rustification: loose object map**
+Feng Wu's **patch** to fix a correctness issue in the Rust `ObjectMap::insert()` method was posted. The patch validates that object IDs use expected hash algorithms and returns a new `ObjectMapInsertError` enum for mismatches.
+
+**Status**: **Needs review**. Part of the Rustification effort.
+
+### **`git history` message prep fix**
+Junio C Hamano posted a **bugfix** for the `git history` command, addressing an inefficient file-handling pattern and a file stream leak that could cause problems on Windows. The patch consolidates file handling and explicitly closes the stream before launching the external editor.
+
+**Status**: **Needs review**. The fix is tested and merge-ready.
+
+### **Geometric + cruft repacking (RFC)**
+Taylor Blau proposed a **ten-patch RFC** to combine `git repack --geometric` and `--cruft` modes, which are currently mutually exclusive. The series introduces `--stdin-packs=follow-reachable` to `git pack-objects` and wires everything together in `git repack`. Junio C Hamano reviewed the fourth patch, suggesting a more efficient implementation for a helper function, and the eighth patch, identifying a **potential correctness issue** in the two-phase traversal logic.
+
+**Status**: **RFC**. The series is complex and submitted during the -rc phase, so it may require significant discussion before merging.
+
+---
 
 ## On the radar
 
-**`git repack` geometric+cruft integration** -- Taylor Blau's RFC to combine `--geometric` and `--cruft` repack modes requires a fix for the reachability filtering correctness issue identified by Junio Hamano. The series is complex and submitted during the -rc phase, so additional iterations are likely.
-
-**Merge-base optimization regression** -- The critical regression in Tian Yuchen's `paint_down_to_common()` optimization series blocks merging until the generation-monotonicity BUG assertion is fixed. The author plans a v4 rework.
-
-**`excludes_file` migration** -- Tian Yuchen's series to move `excludes_file` into `struct repo_config_values` needs a v3 to address the build-breaking unused parameter and Junio's concerns about the temporary guard.
+- **`ps/odb-drop-whence` (7 commits)**: Removes the `whence` field from `struct object_info`; depends on `ps/odb-source-packed`. **Needs review**.
+- **`ps/libgit-in-subdir` (3 commits)**: Moves `libgit.a` sources into a new `lib/` directory. **Needs review**.
+- **`hn/branch-delete-merged` (7 commits)**: Implements `git branch --delete-merged <branch>`. **Needs review**.
+- **`hn/checkout-track-fetch` (2 commits)**: Adds `--fetch` to `git checkout --track`. **Waiting for author response**.
+- **`ps/shift-root-in-graph` (3 commits)**: Indents parentless root commits in `git log --graph`. **Waiting for author response**.

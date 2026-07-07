@@ -1,68 +1,65 @@
-Here is the digest for **2026/07/02**, covering the Git mailing list traffic in a concise, front-page style:
+Here’s the digest for **July 2, 2026**, covering the day’s most notable developments in the Git mailing list:
 
 ---
 
-## The day in brief
-**2026/07/02** was a **heavy but focused** day on the Git mailing list, with **68 emails across 21 threads**. The standout themes were **post-merge bugfixes** (notably for `git replay --linearize` and `git history squash`), **ODB/refactoring work** (Patrick Steinhardt’s `struct object_info` cleanup), and **memory-leak fixes** (Jeff King’s hash-implementation series). The **Git v2.55.0 release** also drew lighthearted attention for its contributor list quirk. If you only read one thing today, make it the **`git replay --linearize` regression fix**—it’s urgent and ready for re-merge.
+### The day in brief
+A **moderately busy day** (68 emails, 21 threads) saw progress on long-running feature series, bugfixes, and CI improvements. The **`git replay --linearize`** series reached v6, **`git history squash`** is now technically complete, and a **security-hardening series for reftable** is ready for merging. Memory-leak fixes and test modernizations also featured prominently. The day’s tone was **collaborative**, with reviewers and authors converging on solutions, though one thread revealed a **systemic limitation** in Git’s undo capabilities.
 
 ---
 
-## Notable threads
+### Notable threads
 
-### **`git replay --linearize` regression fix (v6)**
-**Toon Claes** posted a **critical v6 series** to fix a **silent commit-dropping regression** in the recently merged `git replay --linearize` feature. The bug, introduced in v5, caused only the tip commit to be replayed in single-branch scenarios due to a broken `replayed_base` mechanism. The series also **documents edge cases** (e.g., divergent merges) and **expands test coverage** for root commits, multiple branches, and `--contained` interactions. **Johannes Schindelin** and **Patrick Steinhardt** drove the design discussions, with Schindelin advocating for UX clarity over consistency with `git rebase`. The series is **ready for re-merge** to replace the flawed v5, with no further design changes expected.
-
-**Key takeaway**: If you use `git replay`, this fix is **urgent**—v5 silently drops commits. The v6 series is a **bugfix/documentation update**, not a new feature.
-
----
-
-### **`git history squash` recoverability and reflog critique**
-The **`git history squash`** series (Harald Nordgren) saw **substantive discussion** about **recoverability gaps** in Git’s design. **Matt Hunter** and **Phillip Wood** highlighted that `git reset --hard` is insufficient to undo operations where `--update-refs` moves multiple branches, as Git’s reflog lacks visibility into which refs were affected. **Patrick Steinhardt** proposed an **oplog (operations log)** to enable atomic undo of multi-ref operations, citing Jujutsu (`jj`) and git-branchless as precedents. **Junio C Hamano** clarified that the reflog was never designed for undo, pushing back on overloading it. The series itself is **code-complete (v6)** and ready for final review, but the discussion exposes a **systemic limitation** in Git’s recovery tooling.
-
-**Key takeaway**: The `squash` feature is technically sound, but its `--update-refs` behavior reveals a **broader UX gap**—Git lacks a way to atomically undo complex operations. The oplog idea is a **long-term architectural proposal**, not a blocker for this series.
+#### **`git replay --linearize` reaches v6**
+**Headline**: Toon Claes posted v6 of the `--linearize` option for `git replay`, addressing all prior feedback, including a **regression fix** for single-branch replay with merges. The series now uses `--linearize` as a standalone flag (diverging from `git rebase`'s `--rebase-merges` syntax) with explicit justification in the commit message. Junio C Hamano and Johannes Schindelin support the design, while Patrick Steinhardt’s earlier request for consistency with `git rebase` has been met with a clear rationale. The series is **ready for review** and likely to merge soon.
+**Key detail**: The `replayed_base` parameter was restored to ensure all commits are flattened into a single topology, fixing a bug where commits were dropped during single-branch replay.
 
 ---
 
-### **ODB refactoring: `struct object_info` cleanup (v2)**
-**Patrick Steinhardt** posted **v2 of his 6-patch series** refactoring `struct object_info` to replace the coarse `whence` field with a backend-specific `struct odb_source_info`. The series is **conceptually approved** by Junio, with only a minor reroll needed to rename `sourcep` to `source_infop` (per Justin Tobler’s feedback). The changes are **mechanical but foundational**, touching 14 files across the ODB, packfile, and builtin subsystems. The goal is to enable **multi-source object resolution** and **pluggable ODB backends**, part of Steinhardt’s long-running ODB abstraction effort.
-
-**Key takeaway**: This is a **critical intermediate step** for ODB modularity. The series is **ready for `next`** after the minor rename, with no open technical questions.
-
----
-
-### **Memory-leak fixes in non-default hash implementations (v1)**
-**Jeff King** submitted a **9-patch series** plugging memory leaks in Git’s hash implementations when using non-default backends (OpenSSL SHA-256, libgcrypt). The leaks, discovered via `SANITIZE=leak`, affect subsystems like `csum-file`, `patch-id`, and HTTP object requests. The series introduces a new `git_hash_discard()` primitive and systematically applies it to leaky code paths. **Junio approved patch 1/9** (removing a redundant `discard_hashfile()` function), and the rest of the series is **unreviewed but uncontroversial**. The fixes are **narrowly scoped** to non-default configurations, so impact is limited.
-
-**Key takeaway**: If you use OpenSSL or libgcrypt with Git, these patches are **important correctness fixes**. The series is **well-structured** and likely to merge as-is.
+#### **`git history squash` is code-complete**
+**Headline**: Harald Nordgren’s **`git history squash`** series (v7) is now **technically complete**, with all feedback addressed, including:
+- Adoption of `git rebase -i`'s squash-message template (resolving Phillip Wood’s usability concerns).
+- Explicit rejection of ranges whose oldest commit is a `fixup!`/`squash!`/`amend!` (since the target cannot lie inside the range).
+- Expanded documentation and test coverage.
+**Systemic limitation**: A discussion emerged about Git’s **lack of atomic undo** for multi-ref operations (e.g., `--update-refs`). Patrick Steinhardt proposed an **oplog (operations log)** as a long-term solution, while Junio clarified that the reflog was never designed for this purpose. The `squash` feature itself is sound, but users should be aware that `git reset --hard` may not fully revert operations affecting multiple branches.
+**Key detail**: The `--reedit-message` template now matches `git rebase -i`’s behavior, with `fixup!` messages fully commented out and `squash!`/`amend!` bodies retained.
 
 ---
 
-### **`GIT_TEST_LONG` tests: reliability and efficiency (v1)**
-**Toon Claes** posted a **9-patch series** to make `GIT_TEST_LONG` tests reliable and efficient enough to run in CI. The series includes **test correctness fixes** (skipping broken tests on 32/64-bit systems), **efficiency improvements** (reducing disk usage and runtime), and **CI configuration changes** (enabling `GIT_TEST_LONG` in GitLab CI). **SZEDER Gábor** raised a **policy question** about patch 3/9: whether the `EXPENSIVE` prerequisite should be retained for a test that still uses >1 GiB of memory, even though its runtime is now negligible. **Jeff King** endorsed the series’ efficiency improvements but noted that the `test_copy_bytes` helper (used in patch 3) might be ripe for modernization.
-
-**Key takeaway**: This series **unblocks CI coverage** for long-running tests. The `EXPENSIVE` debate is a **policy question** (runtime vs. resource usage) rather than a technical blocker.
-
----
-
-## In brief
-> **`git rev-list --exclude-first-parent-only` bug** -- Michael Hore reported a logic flaw in `process_parents()` where explicitly specified commits cause `--exclude-first-parent-only` to incorrectly exclude commits. No patch yet; diagnosis points to `revision.c`.
-
-> **`git rm -n *.json` recursion bug** -- Евгений Плискин reported that `git rm -n *.json` recursively removes JSON files from subdirectories, contradicting the documentation. Likely a shell glob vs. Git path-matching issue.
-
-> **`git apply` memory leak and state corruption** -- A standalone patch fixes a leak in `find_header()` where abandoned Git-style diff headers corrupt subsequent parsing. Includes regression tests.
-
-> **Reftable hardening (v2)** -- Patrick Steinhardt’s 12-patch series hardening the reftable backend against corruption is **technically complete**, with all feedback addressed. Includes fuzzing infrastructure and Meson libFuzzer support.
-
-> **Git v2.55.0 released** -- Junio announced the release, drawing lighthearted attention for including "Claude Sonnet 4.6" in the contributor list. No technical follow-up.
-
-> **Git for Windows 2.55.0(2) hotfix** -- Johannes Schindelin re-enabled NTLM authentication as an opt-in deprecated feature, addressing a premature disabling in 2.55.0. Also marks the final release to support Windows 8.1.
-
-> **Test modernization** -- A patch modernized `t9811-git-p4-label-import.sh` to use `test_path_is_file`/`test_path_is_missing` instead of legacy shell constructs.
+#### **Reftable security hardening ready for merging**
+**Headline**: Patrick Steinhardt’s **12-patch series** hardening the reftable backend against corrupted files is now **fully reviewed and approved**. The series includes:
+- **Fuzzing infrastructure** (Meson + libFuzzer support).
+- **Test helper** (`cl_reftable_write_block`) to reduce boilerplate.
+- **Individual fixes** for out-of-bounds reads/writes, NULL pointer dereferences, and uninitialized memory usage.
+Junio C Hamano approved 6 of the 12 patches as "obviously correct," and Christian Couder endorsed the test helper. The series is **ready for `next`** and will ship in Git 2.56.
+**Key detail**: The fuzzer has run for 2+ hours without surfacing new issues, and the fixes replace crashes with `REFTABLE_FORMAT_ERROR` returns.
 
 ---
 
-## On the radar
-- **`git replay --linearize` v6** is **ready for re-merge** to fix the silent commit-dropping regression. Track this if you use `git replay`.
-- **ODB refactoring (`ps/odb-drop-whence`)** is **ready for `next`** after a minor reroll. Critical for future ODB modularity.
-- **Memory-leak fixes in hash implementations** are **unreviewed but uncontroversial**. Important for OpenSSL/libgcrypt users.
-- **`GIT_TEST_LONG` CI coverage** is expanding to GitLab, but the `EXPENSIVE` debate may influence future test labeling policy.
+#### **Memory-leak fixes land**
+**Headline**: Jeff King (Peff) posted a **9-patch series** plugging memory leaks in Git’s hash implementations (OpenSSL, libgcrypt). The series introduces `git_hash_discard()` and systematically applies it to leaky subsystems (`csum-file`, `patch-id`, HTTP object requests). Junio approved the first patch, and Patrick Steinhardt suggested renaming `git_hash_discard()` to `git_hash_release()` for idiomatic consistency. The leaks are **invisible with default hash backends** but critical for users of `OPENSSL_SHA256=1` or `GCRYPT_SHA256=1`.
+**Key detail**: Patch 9 replaces the "hacky" `git_hash_discard()` implementation (which called `git_hash_final()` into a dummy buffer) with platform-specific discard functions, eliminating inefficiency.
+
+---
+
+#### **CI and test improvements**
+**Headline**: Patrick Steinhardt’s **9-patch series** makes `GIT_TEST_LONG` tests reliable and efficient enough to run in GitLab CI. Key changes:
+- **Test correctness fixes**: Skip broken tests on incompatible platforms (e.g., `SIZE_T_IS_64BIT` for `t0021`).
+- **Efficiency improvements**: Replace slow `dd` pipelines with `genzeros` (reducing runtime from 6 minutes to <1 second in `t4141`).
+- **CI visibility**: Add a GitLab CI badge to the README and enable `GIT_TEST_LONG` for integration branches.
+**Debate**: SZEDER Gábor argued that `t4141` should retain the `EXPENSIVE` prerequisite due to high memory usage (>1 GiB RSS), even though it now runs quickly. The discussion highlights a **policy question**: should "expensive" be tied to runtime, resource usage, or both?
+
+---
+
+### In brief
+- **`git rev-list --exclude-first-parent-only` bug**: Michael Hore reported a logic flaw where explicit commits on the command line cause incorrect exclusions. Junio proposed a fix targeting `process_parents()` in `revision.c`.
+- **`git apply` memory leak**: Zephyr Yao fixed a leak in `find_header()` where abandoned Git-style diff headers corrupted patch state. The fix adds a temporary `struct patch` to isolate parsing.
+- **`git rm -n *.json` recursion**: Евгений Плискин reported unexpected recursion into subdirectories. The behavior is **expected** (pathspecs match `/` by default), but the discussion shifted to improving `git-rm(1)`’s documentation of pathspec semantics.
+- **ODB refactoring**: Patrick Steinhardt’s **6-patch series** refactoring `struct object_info` to use `source_infop` is **ready for `next`**. The series replaces the coarse `whence` field with a backend-specific `struct odb_source_info`, enabling future multi-source object resolution.
+- **Git v2.55.0 released**: Junio announced the final release, drawing lighthearted commentary about "Claude Sonnet 4.6" appearing in the contributor list.
+- **Git for Windows 2.55.0(2)**: Johannes Schindelin released a hotfix re-enabling NTLM authentication as an opt-in deprecated feature, pending its removal in 2026.
+
+---
+
+### On the radar
+- **Oplog proposal**: Patrick Steinhardt’s vision for an **operations log** to enable atomic undo of multi-ref operations (e.g., `git history squash --update-refs`) remains a **long-term architectural goal**. The discussion highlighted Git’s current limitations in this area.
+- **Test modernization**: Marcelo Machado Lage’s patch modernizing `t9811-git-p4-label-import.sh` awaits a reroll to address Patrick Steinhardt’s feedback on commit message clarity and readability.

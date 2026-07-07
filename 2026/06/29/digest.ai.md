@@ -1,88 +1,61 @@
-# The Git Project Mailing List Daily Digest
-
-**The day in brief.**
-June 29, 2026 was a milestone-heavy day for Git development. The **Git 2.55.0 release** shipped, capping a cycle that introduced parallel hooks, new built-ins (`git format-rev`, `git url-parse`), Linux fsmonitor, and foundational ODB abstraction work. The mailing list was dominated by **post-release integration updates**—Junio’s "What’s cooking" report listed nine new topics needing review, while several long-running series (reftable hardening, ODB refactoring, `git history` subcommands) reached technical consensus. A **critical regression** in `git replay --linearize` was identified post-merge, and a **security-hardening series** for reftable (12 patches) landed with fuzzing infrastructure. The tone was collaborative but brisk, with maintainers pushing to finalize 2.55 follow-ups before the next cycle.
+The day in brief
+**2026/06/29** was a **heavy, milestone-heavy day**—Git 2.55.0 shipped, Git for Windows 2.55.0 followed, and the Git Merge 2026 CFP deadline was extended. The list saw **106 emails across 29 threads**, with **two major releases** and **a flurry of last-minute bugfixes, security hardening, and ODB refactoring** dominating the traffic. The one thing a reader absolutely should not miss: **Git 2.55.0 is out**, carrying **parallel hooks, new built-ins, Linux fsmonitor, and the first wave of Rust readiness**—and the reftable backend is now **fuzz-hardened** against corrupted files.
 
 ---
 
-## Notable threads
+### Notable threads
 
-### Git 2.55.0 released
-**Junio C Hamano** announced the final release of Git 2.55.0, summarizing 505 non-merge commits from 100 contributors. Highlights include:
-- **Parallel hooks** (`hook.jobs`, `--jobs`) and new built-ins (`git format-rev`, `git url-parse`).
-- **Linux fsmonitor daemon** (Paul Tarjan) and **Rust support enabled by default** (Ezekiel Newren).
-- **ODB abstraction** (Patrick Steinhardt) and **MIDX incremental repacking** (`--write-midx=incremental`).
-- **Breaking changes**: Stricter proxy URL validation, sideband terminal control sequences disabled by default.
-
-The release also includes over 50 bug fixes, from memory leaks to edge cases in `git bisect` and `git describe`. The changelog is organized by UI/workflow, performance, and internal refactoring, with notable contributions from Taylor Blau (MIDX), Jeff King (reftable leak fixes), and Hannes Sixt (new `git history` subcommands).
-
-**Why it matters**: This is a major release with architectural shifts (ODB, Rust) and performance improvements (revision traversal, sparse-index). The parallel hooks feature is particularly significant for CI/CD workflows, while the ODB abstraction paves the way for pluggable backends.
+#### Git v2.55.0 released
+Junio C Hamano’s announcement of Git 2.55.0 (505 non-merge commits from 100 contributors) was the day’s headline. The release integrates **parallel hooks** (`hook.jobs`), two new built-ins (`git format-rev` and `git url-parse`), the **Linux fsmonitor daemon** (bringing Linux to parity with Windows/macOS), and **Rust readiness** (now enabled by default, though still opt-out). Performance wins include **revision traversal optimizations** (100–1000× speedups for asymmetric queries), **reachability bitmaps**, and **sparse-index improvements**. The changelog also notes **over 50 bugfixes**, including a **Windows-specific `git fetch` regression** that caused infinite unlink loops on older Windows 10. The thread drew lighthearted commentary about a humorous contributor list entry (“Claude Sonnet 4.6”) but no substantive discussion—this was a pure release notice.
 
 ---
 
-### Reftable security hardening (12 patches)
-**Patrick Steinhardt** posted a **v2 series** hardening Git’s reftable backend against maliciously corrupted files. The patches address vulnerabilities discovered via libFuzzer, including out-of-bounds reads/writes, NULL pointer dereferences, and uninitialized memory usage. Key fixes:
-- **Patch 6/12**: Fixes a heap-buffer-overflow in log block parsing when the inflated block size is smaller than the header.
-- **Patch 12/12**: Adds bounds checks in `reftable_table_new()` to prevent underflow when a file is truncated mid-footer.
-- **Fuzzing infrastructure**: New Meson support for libFuzzer and a reftable fuzzer target (`oss-fuzz/fuzz-reftable.c`).
-
-The series is **technically complete** and includes a test helper (`cl_reftable_write_block`) to reduce boilerplate in unit tests. No objections have been raised, and the fuzzer now runs for 2+ hours without surfacing new issues.
-
-**Why it matters**: Reftable is a critical backend for large repositories (e.g., Google’s internal Git). This hardening effort proactively addresses security risks, even though exploitation requires local disk access. The fuzzing infrastructure will help prevent regressions.
+#### Git for Windows 2.55.0
+Johannes Schindelin followed with the Git for Windows 2.55.0 announcement, a downstream packaging of upstream Git 2.55.0 with Windows-specific dependencies (MSYS2, Git Credential Manager, OpenSSL, Bash, cURL). This release **drops Windows 8.1 support** (following MSYS2) and includes **Windows-specific fixes**: a `git fetch` regression causing infinite unlink loops on older Windows 10, Git Bash process shutdown issues, parallel checkout failures with FSCache, stricter `.git` file validation (matching TortoiseGit 2.19), and improved handling of large clones/packfiles. SHA-256 checksums are provided for all artifacts (x86_64, ARM64, 32-bit installers/archives). The thread is editorially separate from upstream Git but critical for Windows users.
 
 ---
 
-### ODB abstraction: `struct object_info` refactoring
-**Patrick Steinhardt** posted a **6-patch series** replacing `struct object_info`'s `whence` field with a new `struct object_info_source` to enable multi-source object resolution. The series is part of the ongoing ODB abstraction effort and has **conceptual approval** from Junio ("Great"), but a **medium-weight architectural debate** emerged over whether the `source` parameter should be opt-in (current design) or recorded centrally during `packed_git` initialization.
-
-**Justin Tobler** and **Junio** questioned the opt-in design, suggesting it complicates the API. Patrick defended the approach as more flexible for callers that don’t need source information. The discussion remains unresolved, but the series is otherwise ready for review.
-
-**Why it matters**: This refactoring is foundational for pluggable ODB backends. The debate highlights a tension between flexibility (opt-in) and simplicity (centralized tracking), which will likely resurface in future ODB work.
+#### Reftable security hardening (ps/reftable-hardening)
+Patrick Steinhardt’s **12-patch series** systematically hardens Git’s reftable backend against maliciously corrupted files, addressing **out-of-bounds reads/writes, NULL pointer dereferences, uninitialized memory usage, and calls to `abort()`**. The series includes **fuzzing infrastructure** (libFuzzer + Meson support) and a **test helper** (`cl_reftable_write_block`) to reduce boilerplate in unit tests. Junio C Hamano approved patches 6–11/12 as “obviously correct,” and Christian Couder approved patch 5/12. The series is **technically complete and ready for merging**, with no unresolved feedback. The fuzzer has run for 2+ hours without surfacing new issues, and the fixes replace crashes with graceful error returns (`REFTABLE_FORMAT_ERROR`). This is a **proactive security effort** with no user-visible changes, targeting a backend that is not yet the default but is under active development.
 
 ---
 
-### `git replay --linearize` regression post-merge
-**Johannes Schindelin** identified a **critical regression** in the recently merged `git replay --linearize` feature (Toon Claes). The bug causes **silent commit dropping** in single-branch replay with merge commits. For example, in a diamond-shaped history, only the tip commit is replayed, and intermediate commits (including merges) are lost.
-
-**Patrick Steinhardt** raised a **CLI design inconsistency**: `--linearize` deviates from `git rebase`'s established syntax (`--rebase-merges`, `--no-rebase-merges`). The thread now centers on whether to adopt `git rebase`'s vocabulary for consistency.
-
-**Why it matters**: This is a **high-priority regression** with data loss potential. The CLI debate is strategic—commands manipulating commit history should share vocabulary to avoid user confusion.
+#### ODB abstraction: `odb-drop-whence` (ps/odb-drop-whence)
+Patrick Steinhardt’s **7-patch series** refactors `struct object_info` to replace the coarse `whence` field and `u` union with an opt-in `struct odb_source_info`, enabling multi-source object resolution for pluggable ODB backends. The series is **conceptually approved and queued for merging** by Junio, with all prior feedback addressed. Justin Tobler’s review raised **architectural questions** about whether the ODB source should be tracked at `struct packed_git` initialization time rather than passed as an optional parameter, but the discussion remains open. The series is **self-contained and targets `master`**, with no behavior changes—it’s a foundational step for the ODB abstraction effort.
 
 ---
 
-### `git history drop` and `git history squash` subcommands
-**Hannes Sixt** posted two new subcommands for the experimental `git history` built-in:
-- **`git history drop`** (11 patches): Removes a commit and replays its descendants onto its parent, with dry-run mode and refactoring of the reset machinery.
-- **`git history squash`** (4 patches): Folds a commit range into its oldest commit, replaying descendants on top.
-
-Both series are **technically complete** and address prior feedback, including input validation, merge commit handling, and `--reedit-message` usability. **Junio** and **Phillip Wood** reviewed the squash series, focusing on template formatting and edge cases (e.g., `fixup!` commits with out-of-range targets).
-
-**Why it matters**: These subcommands modernize Git’s history-editing workflows, offering alternatives to `git rebase -i` with better conflict handling and dry-run support. The `drop` subcommand is particularly useful for removing sensitive commits without rewriting unrelated history.
+#### `git history drop` (ps/history-drop)
+Patrick Steinhardt’s **11-patch series** adds the `git history drop` subcommand, allowing users to remove a commit and replay its descendants onto its parent. The series includes **dry-run mode**, **refactored reset machinery** (to avoid touching HEAD/index unnecessarily), and **561 lines of test coverage**. Junio C Hamano’s review identified a **logical flaw** in the `find_head_tree_change()` helper, which could incorrectly conclude that HEAD does not move when `--update-refs=head` is used. The fix is straightforward and will appear in v8. The series is **ready for final review**, with all other feedback addressed.
 
 ---
 
-## In brief
-
-**`git refs` subcommands** -- Patrick Steinhardt’s 5-patch series adding `create`, `delete`, `update`, and `rename` subcommands to `git refs` was merged. The series consolidates reference manipulation functionality previously scattered across `git-update-ref` and `git-symbolic-ref`.
-
-**ODB transactions in `receive-pack`** -- Justin Tobler’s 6-patch series refactoring `git-receive-pack` to use ODB transactions (instead of `tmp_objdir`) is ready for review. The series advances the ODB abstraction effort and includes a follow-up plan for backend-agnostic object writes.
-
-**`paint_down_to_common()` optimization** -- Kristofer Karlsson’s 8-patch series optimizing merge-base computation for one-sided histories was merged. The series removes an obsolete commit-date fallback and adds a regression test.
-
-**`USE_NSEC` debate** -- A discussion about flipping the default of `USE_NSEC` (nanosecond timestamp tracking) to `true` for most users gained traction. **Brian M. Carlson** proposed the change based on Jeff King’s testing, while **Patrick Steinhardt** suggested converting it to a runtime setting. The debate remains unresolved.
-
-**`excludes_file` libification** -- Tian Yuchen’s series migrating `excludes_file` into `struct repo_config_values` is blocked on a **three-phase guardrail plan** (silent return → `BUG()` → no check). Junio insists **Phase 2 (adding `BUG()`)** must be implemented before merging.
-
-**`greplint.pl` series** -- Michael Montalbo’s 6-patch series introducing a linter for `grep` assertions in tests was resolved. The series exposed systemic risks in automated conversion masking pre-existing test bugs, but the maintainer accepted it with targeted cleanup.
+#### `git history squash` (hn/history-squash)
+Harald Nordgren’s **4-patch series** introduces `git history squash`, a subcommand to fold a commit range into its oldest commit while replaying descendants on top. The series is **code-complete and ready for Junio’s final review**, with all prior feedback addressed, including **input validation**, **merge commit handling**, and **`--reedit-message` template alignment** with `git rebase -i`. Phillip Wood’s review raised **usability questions** about whether `--reedit-message` should be the default (for commit hygiene) and **recoverability concerns** when `--update-refs` moves multiple branches. Junio’s feedback focused on **CLI/documentation style** (option ordering, `@` shorthand), which Harald addressed in v7. The series is **uncontroversial and well-tested**, with 747 lines of test coverage.
 
 ---
 
-## On the radar
+#### `git replay --linearize` (toon/replay-linearize)
+Toon Claes’s **3-patch series** (v6) adds a `--linearize` option to `git replay` to flatten merge commits, producing a linear history. The series is **technically complete**, with all prior feedback addressed, including a **regression fix** for commit-dropping when replaying a single branch containing merge commits. The **interface design debate** (whether to mirror `git rebase --rebase-merges=<mode>`) remains unresolved but is no longer blocking. Junio C Hamano’s review suggested **justifying the `--linearize`/`--revert` incompatibility** or moving the note to a BUGS/LIMITATIONS section. The series is **ready for final review**, with no unresolved technical objections.
 
-**`git replay --linearize` regression** -- The post-merge regression in `git replay --linearize` (silent commit dropping) needs urgent attention. A follow-up patch is expected to restore the `replayed_base` logic or redesign multi-branch handling.
+---
 
-**`git history` subcommands** -- The `drop` and `squash` subcommands are ready for final review. Junio’s "What’s cooking" report lists them as needing attention.
+### In brief
 
-**Reftable hardening** -- Patrick Steinhardt’s 12-patch security-hardening series for reftable is technically complete and awaiting substantive review.
+- **Reftable leak fix (jk/reftable-leakfix)** – Jeff King fixed a memory leak in `reftable_writer_new` where the `reftable_writer` struct was allocated before input validation. The patch is **merged**, with a trivial conflict resolution noted.
+- **ODB transactions in `receive-pack` (jt/receive-pack-use-odb-transactions)** – Justin Tobler’s **6-patch series** refactors `git-receive-pack` to use ODB transactions instead of `tmp_objdir`. The series is **ready for v2**, with all feedback addressed, including **error-handling improvements** and **lazy directory creation investigation deferred**.
+- **`excludes_file` libification (tian/excludes-file)** – Tian Yuchen’s **3-patch series** migrates the global `excludes_file` variable into `struct repo_config_values` as part of the libification effort. The series is **merged into `next`**, with the **three-phase guardrail migration** fully executed.
+- **`git history --reword` file stream leak (junio/history-reword-fix)** – Junio C Hamano’s **bugfix patch** addresses a file stream leak and inefficient file handling in `fill_commit_message()`. The patch is **ready for merging**, with Patrick Steinhardt’s feedback about **error-checking** addressed in v2.
+- **OpenSSL CVE-2026-34182 inquiry** – A reported critical CVE in OpenSSL 3.5.6 (bundled with Git 2.54.0 and Git for Windows) prompted an inquiry, but the thread **closed** after confirming Git and Git for Windows are not exposed. The next Git for Windows release (v2.55.0) will include OpenSSL 3.5.7.
+- **`git receive-pack` hang on zero-object push to promisor remote** – Wei Hu reported a hang in `git receive-pack` when pushing a zero-object ref update to a promisor-configured repository. Patrick Steinhardt confirmed the bug was **already fixed** by commit d9982e8290, which will ship in Git 2.55.0.
+- **Clock-skew regression in `git merge-base` (kk/merge-base-clock-skew-fix)** – Kristoffer Karlsson’s **2-patch series** fixes a regression in `git merge-base` (without `--all`) introduced by 93e5b1680e. The series is **ready for merging**, with Junio’s integration question resolved.
+- **Git Merge 2026 CFP deadline extended** – Taylor Blau extended the Git Merge 2026 Call for Proposals deadline from June 30 to July 14, 2026, to accommodate more contributors.
 
-**ODB abstraction** -- The `struct object_info` refactoring series is stuck on the opt-in vs. centralized source-tracking debate. A resolution is needed to unblock further ODB work.
+---
+
+### On the radar
+- **`kk/merge-base-exhaustion` (v5)** – Kristoffer Karlsson’s **10-patch series** optimizes merge-base computation by stopping early when one side’s exclusive commits are exhausted. The series is **ready for merging**, with all feedback addressed, but will be rebased on top of the **clock-skew regression fix** (`kk/merge-base-clock-skew-fix`).
+- **`tb/repack-geometric-cruft` (11 patches)** – Taylor Blau’s series teaches `git repack --geometric --cruft` to roll up non-cruft packs into a geometric progression while writing a separate cruft pack for unreachable objects. The series is **new and needs review**.
+- **`ps/libgit-in-subdir` (4 patches)** – Patrick Steinhardt’s series moves all `libgit.a` source files into a new `lib/` directory to clean up the top-level directory. The series is **new and needs review**.
+- **`ps/cat-file-remote-object-info` (4 patches)** – Patrick Steinhardt’s series adds `remote-object-info` to `git cat-file --batch-command`, allowing clients to request object metadata from a remote server via protocol v2. The series is **new and needs review**.
+- **`mm/diff-process-hunks` (1 patch)** – Max Mustermann’s series introduces `diff.<driver>.process` config to let external long-running processes act as hunk providers. The series is **new and needs review**.
