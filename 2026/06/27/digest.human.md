@@ -1,61 +1,50 @@
 ## The day in brief
 
-Saturday, June 27, 2026 was a moderately busy day on the Git mailing list, with 50 emails across 15 active threads. The standout developments were **a critical correctness debate in the `git cat-file --batch-command` remote object-info series**, **a usability series for common command-line slips landing in `next`**, and **a post-merge behavioral clarification in the `git replay --linearize` feature**. A new **infinite-loop bug report** in `git ls-remote` and a **security inquiry about CVE-2026-34182** also drew attention, though neither has yet produced a patch.
+Saturday, June 27, 2026 was a **moderately busy day** on the Git mailing list, with **50 emails across 15 threads**. The standout developments were **two long-running series reaching technical completion**—Harald Nordgren’s usability improvements for misformatted remote/branch arguments, and Michael Montalbo’s `greplint.pl` test-suite linter—both now **merged into `next`**. A **security inquiry** about OpenSSL CVE-2026-34182 was **resolved as non-applicable** to Git, and a **regression fix** for HTTPS proxy URLs was **merged into `master`**. The day also saw **substantive review feedback** on Taylor Blau’s RFC combining `--geometric` and `--cruft` repack modes, and **new bug reports** about `git ls-remote` hangs and a potential infinite loop.
 
 ---
 
 ## Notable threads
 
-### `git cat-file --batch-command` remote object-info: correctness debate
-
-Pablo Sabater’s GSoC series implementing `git cat-file --batch-command` for remote object metadata queries hit a snag when **Karthik Nayak raised substantive concerns about the client-side implementation’s error handling and transport-layer integration**. The debate centers on whether the patch should silently skip objects lacking size data (returning empty strings) or fail explicitly, and whether piggybacking on `fetch_refs_via_pack()` violates the function’s contract. Pablo defended the silent-failure approach as consistent with local `git cat-file` behavior, but Karthik’s critique—particularly the ambiguity about success versus failure—has stalled the series’ progress. The discussion also clarified the server capability advertisement format (`object-info=size type`), resolving a forward-looking design question. **The series remains in limbo pending architectural adjustments**, with the error-handling philosophy still unresolved.
-
----
-
-### Usability improvements for common command-line slips land in `next`
-
-Harald Nordgren’s v3 series improving Git’s error messages for two frequent mistakes—`git branch --set-upstream-to=origin main` (missing slash) and `git push origin/main` (slash instead of space)—**received maintainer approval and is now queued in `next`**. The patches add new config options (`advice.setUpstreamFailure` and `advice.pushRepoLooksLikeRef`) and helper functions that trigger advice only when the remote-tracking ref exists (branch case) or the remote is configured (push case). Junio’s earlier edge-case question (where the local branch exists but the remote-tracking ref also exists) remains unaddressed but is acknowledged as non-blocking. The series is a rare example of a **user-facing improvement that sailed through review with minimal controversy**, thanks to its narrow scope and clear motivation.
+### `git branch` and `git push` usability improvements now merged
+**Harald Nordgren’s two-patch series** (v3) improving error messages for common command-line slips—`git branch --set-upstream-to=origin main` (missing slash) and `git push origin/main` (slash instead of space)—**landed in `next`**. The patches add new config options (`advice.setUpstreamFailure` and `advice.pushRepoLooksLikeRef`) and helper functions to detect these mistakes and suggest corrections. Junio C Hamano queued the series after addressing all feedback, including test style fixes and documentation of a redundant advice check. The implementation is **non-disruptive**, focused solely on error messaging, and directly addresses a frequent user pain point. **Files touched**: `builtin/branch.c`, `builtin/push.c`, `advice.{c,h}`, `Documentation/config/advice.adoc`.
 
 ---
 
-### `git replay --linearize` post-merge behavioral clarification
-
-Toon Claes’s `git replay --linearize` feature, merged earlier this month, faced **post-merge scrutiny over its handling of merge commits with divergent branches**. Phillip Wood and Junio C Hamano clarified that the current implementation drops the merge and grafts only the first-parent branch, leaving the other branch dangling—a behavior that differs from `git rebase --no-rebase-merges`. Junio proposed a test to document this edge case, and the discussion has shifted toward whether users should have control over which branch survives. **The thread is now focused on documentation and potential follow-up patches**, with no immediate code changes planned. This is a textbook example of how **post-merge edge cases can surface even in well-reviewed series**, underscoring the value of real-world usage.
-
----
-
-### `git repack --geometric --cruft`: correctness issue in reachability filtering
-
-Taylor Blau’s RFC series combining `--geometric` and `--cruft` repack modes hit a **critical correctness snag** when Junio C Hamano identified a flaw in the two-phase traversal logic of `--stdin-packs=follow-reachable`. The current implementation risks retaining unreachable tags and objects, undermining the series’ core goal of separating reachable and unreachable objects. Taylor acknowledged the issue and proposed reversing the traversal order (prioritizing reachability from refs before marking objects in included packs), but no concrete fix has been posted yet. **The series is now blocked pending a non-trivial redesign of the reachability filtering**, and the discussion highlights the complexity of integrating geometric and cruft logic. This is a cautionary tale about **how even well-motivated RFCs can uncover subtle correctness issues late in the review cycle**.
+### `greplint.pl` test-suite linter series approved for merging
+Michael Montalbo’s **six-patch series** (v4) introducing `greplint.pl`, a linter that converts bare `grep` assertions in the test suite to `test_grep` for improved debuggability, **received maintainer approval** and is now **ready for `next`**. The series found and fixed **10+ pre-existing test bugs**, including a latent lexer bug in the shared shell parser. Junio C Hamano’s only remaining concern—a pre-existing bug in `t3420-rebase-autostash.sh` preserved by the linter—was addressed by proposing a **technical extension to `test_grep`** to detect missing-file cases. The series is **technically complete**, with all prior feedback incorporated, and represents a **significant step forward in test suite hygiene**. **Files touched**: `greplint.pl`, `greplint-cat.pl`, `lib-shell-parser.pl`, `Makefile`, `t/test-lib-functions.sh`, `t/README`, and ~340 test scripts.
 
 ---
 
-### Libification: `excludes_file` migration into `repo_config_values`
+### HTTPS proxy regression fix merged
+Johannes Schindelin’s **standalone patch** fixing a regression in commit `663d7abe07ea` (http: reject unsupported proxy URL schemes) was **merged into `master`**. The patch corrects a control-flow error in `set_curl_proxy_type()` where the HTTPS branch fell through to a `return -1` intended for unknown schemes, causing Git to incorrectly reject HTTPS proxy URLs. The fix is **minimal (two lines added to `http.c`)** and preserves the original hardening intent. Junio C Hamano initially suggested refactoring the function to return `void` but retracted the idea after recognizing the need to reject unsupported proxy schemes. The patch is **self-contained and uncontroversial**, addressing a specific logic error without introducing new behavior.
 
-Tian Yuchen’s refactoring series to move the global `excludes_file` variable into `struct repo_config_values` **reached a turning point** after Junio C Hamano’s review of the final patch. The series now uses a stricter `repo->initialized` check instead of the controversial `if (repo != the_repository)` guard, and the two patches have been squashed into one. Junio’s latest feedback questions the silent early return in the new getter, advocating for a `BUG()` assertion to catch callers accessing uninitialized repositories. **The discussion has narrowed to error-handling philosophy**, with the series otherwise ready for `next`. This is a microcosm of the broader libification effort’s challenges: **balancing correctness, maintainability, and backward compatibility**.
+---
+
+### OpenSSL CVE-2026-34182 inquiry resolved
+A **security inquiry** about CVE-2026-34182 (OpenSSL 3.5.6) in Git 2.54.0 was **resolved as non-applicable**. Todd Zullinger clarified that Git’s OpenSSL usage does not invoke the CMS functionality affected by the CVE, and Johannes Schindelin confirmed that the OpenSSL executable bundled with Git for Windows is not critical. The reporter, Tim Person, formally accepted the assessment, and no Git release or advisory is planned. The next Git for Windows release (v2.55.0, June 29–30) will include OpenSSL 3.5.7.
+
+---
+
+### `git repack --geometric --cruft` RFC faces correctness challenge
+Taylor Blau’s **10-patch RFC** combining `--geometric` and `--cruft` repack modes received **substantive review feedback** from Junio C Hamano. The core issue is a **correctness flaw** in the two-phase traversal logic of `--stdin-packs=follow-reachable`, which may retain unreachable tags and objects. Taylor acknowledged the problem and proposed reversing the traversal order to prioritize reachability from refs, but no concrete implementation has been submitted yet. The series also includes a **minor efficiency improvement** (rewriting `pack_geometry_contains_pack()` using `skip_prefix()`) and a **pre-existing quirk** in MIDX retention logic (not addressed). The RFC remains in **early review**, with significant rework expected for the reachability filtering.
 
 ---
 
 ## In brief
 
-**Test fix for rebase autostash** -- SZEDER Gábor resurfaced a five-year-old patch correcting a fragile test in `t3420-rebase-autostash.sh`. The fix replaces `! grep dirty file3` with `test_path_is_missing file3` to properly assert the file’s absence after `git rebase --quit`. Phillip Wood endorsed the patch, and Todd Zullinger flagged a typo in the commit message. **The patch is ready for merging**, with no unresolved technical concerns.
+**`git replay --linearize` behavioral clarification** -- Phillip Wood clarified the algorithmic difference between `git replay --linearize` and `git rebase --no-rebase-merges` when flattening divergent merges. The discussion reinforced the need for documentation and test coverage of this edge case, but the series itself remains **technically complete**.
 
-**`git log -L` range-scoped diff stat, whitespace check, and `-G` pickaxe** -- Michael Montalbo posted v2 of Karthik Nayak’s series extending `git log -L` to support `--stat`, `--check`, and `-G`. The only change from v1 was rewording documentation to avoid "range-scoped" jargon, addressing Junio’s feedback. **The series is now complete and ready for further review**, with no outstanding objections.
+**`git log -L` range-scoped diff stat, whitespace check, and `-G` pickaxe (v2)** -- Michael Montalbo submitted the second iteration of a seven-patch series extending `git log -L` to support range-scoped diff stat formats (`--stat`, `--numstat`, `--shortstat`), whitespace checking (`--check`), and the `-G` pickaxe. The v2 changes are **documentation-only**, addressing Junio’s feedback to avoid "range-scoped" jargon. The series is **ready for review**, with no outstanding technical objections.
 
-**Gitk and git-gui quiet build alignment** -- Harald Nordgren’s series to silence translation-catalog build output during `make -s` for gitk and git-gui **is procedurally complete**. Johannes Sixt confirmed the gitk changes are merged, and the git-gui portion is superseded by his pre-existing `hn/silence-make-s` branch. **The changes will land in the next git-gui release cycle**, independent of core Git.
+**`excludes_file` libification (v3–v6)** -- Tian Yuchen’s refactoring patch moving the global `excludes_file` variable into `struct repo_config_values` **evolved through four iterations**, addressing feedback on guard design, memory management, and patch structure. The series is now **merged into `next`**, completing the three-phase migration path (silent return → `BUG()` → no check) proposed by Christian Couder.
 
-**Infinite loop in `git ls-remote`** -- Steffen Nurpmeso reported a **100% CPU hang** in `git ls-remote` when querying `https://gitlab.xiph.org/xiph/opus.git`. Michael Montalbo suggested network-related workarounds, but Steffen later confirmed the issue disappeared without explanation. **The root cause remains unidentified**, and no patch has been proposed.
-
-**CVE-2026-34182 security inquiry** -- Tim Person asked about Git’s plans to update its bundled OpenSSL 3.5.6 in response to CVE-2026-34182. Todd Zullinger clarified that **Git itself does not distribute binaries** (the Windows installer is produced by Git for Windows) and that the CVE’s CMS-specific nature likely does not affect Git’s usage of OpenSSL. **The thread closed with no action required from the Git project**.
-
-**HTTP transport regression fix** -- Johannes Schindelin fixed a regression in `http.c` where Git incorrectly rejected HTTPS proxy URLs. The patch adds an explicit `return 0` after configuring the CURL handle for HTTPS proxying, preventing a fall-through to an error return. **The fix is small, self-contained, and ready for merging**.
+**`git ls-remote` hangs and timeouts** -- Two separate reports emerged about `git ls-remote` misbehaving against specific repositories. One case (Steffen Nurpmeso) initially exhibited a **100% CPU busy-loop**, which later morphed into a **low-speed timeout** under constrained network conditions. The root cause remains **unidentified**, but work-around settings (`http.version=HTTP/1.1`, `http.lowSpeedLimit`, `http.lowSpeedTime`) were suggested. No patch or merge has been produced.
 
 ---
 
 ## On the radar
 
-**`git replay --linearize` merge commit divergence** -- The post-merge discussion about how `git replay --linearize` handles merge commits with divergent branches may prompt a follow-up patch to either adjust the behavior or document it more clearly. **Watch for test additions or documentation updates** in the coming days.
+**`git repack --geometric --cruft` RFC** -- Taylor Blau’s series combining `--geometric` and `--cruft` repack modes faces a **non-trivial correctness issue** in the reachability filtering logic. The proposed fix (reversing the traversal order) may require significant rework, and the series’ complexity suggests it will need **additional iterations** before merging.
 
-**`git repack --geometric --cruft` reachability filtering** -- Taylor Blau’s RFC series is blocked pending a redesign of the two-phase traversal logic in `--stdin-packs=follow-reachable`. **A revised patch is expected**, but the complexity of the fix may delay the series’ progress.
-
-**Libification error-handling philosophy** -- The debate over whether `repo_excludes_file()` should silently return or `BUG()` when called on an uninitialized repository may resurface in other libification patches. **Expect similar discussions as more global variables are migrated into `struct repo_config_values`**.
+**`git ls-remote` hangs** -- The two reports of `git ls-remote` misbehaving (busy-loop and timeout) remain **unresolved at the code level**. No similar reports have surfaced, but the constrained network conditions suggest a potential **edge case in the HTTP transport layer** worth monitoring.
