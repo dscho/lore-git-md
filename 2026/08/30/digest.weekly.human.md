@@ -1,0 +1,78 @@
+# The Git Project mailing list digest for 2026/08/24 -- 2026/08/30
+
+## The period in brief
+
+This week (2026/08/24--2026/08/30) saw sustained high-volume traffic across the Git mailing list, with 24 distinct topics appearing in the daily digests. The tone was technical and forward-looking, with several long-running architectural efforts reaching key decision points. Three developments stand out: the `git history squash` series cleared its final technical hurdle with a maintainer ruling on OID case-sensitivity; Junio C Hamano proposed a sweeping architectural redesign of built-in command interfaces; and a use-after-free regression in `git stash show` was reported, affecting scriptability in production environments.
+
+## Key developments
+
+### `git history squash` autosquash marker resolution policy
+The `git history squash` series by Harald Nordgren reached a critical milestone when Junio C Hamano ruled that autosquash markers (`fixup!`/`squash!`/`amend!`) must use strict case-sensitive OID matching, rejecting uppercase OIDs. The decision resolves a long-running design debate and requires only a one-line mechanical change in Patch 7/8: replacing `istarts_with()` with `starts_with()` in `squash_check_can_autosquash()`. The series, which efficiently collapses commit ranges while preserving descendant history, is now functionally complete except for this change and corresponding test coverage. Junio’s "Will replace" sign-off from v7 indicates intent to merge once the reroll (v15) is posted.
+
+### Architectural redesign of built-in command interfaces
+Junio C Hamano proposed a sweeping architectural change to built-in command interfaces, replacing the `struct repository *repo` parameter in all built-in commands with a simple `bool has_repo` flag. The proposal, accompanied by an 8-patch series refactoring `git checkout`, `git switch`, and `git restore`, argues that the current design creates a false promise of libification, risks segfaults (e.g., `cd / && git foo -h`), and obscures the architectural boundary between built-ins (one-time orchestrators) and reusable utility code. The change affects 135 files and redirects the `the_repository` removal effort toward utility code outside `builtin/`, where libification is both feasible and meaningful. Junio’s follow-up emails clarified that the `bool has_repo` design is motivated by safety and clarity, not efficiency, and is intended as a final state for built-in command interfaces.
+
+### Use-after-free regression in `git stash show`
+Nicolas Le Cam reported a use-after-free regression in `git stash show` when `--src-prefix` or `--dst-prefix` is used, introduced in Git 2.52.0 by commit 3ea35c64b. The issue causes garbage in the diff header (e.g., `diff --git Uf.txt Uf.txt`) instead of the expected `diff --git a/f.txt b/f.txt`, breaking tools like `lint-staged` that rely on parseable diff output. The root cause is `OPT_STRING_F` storing pointers into `argv` elements that are later freed while `struct diff_options` still holds dangling pointers. The corruption is deterministic across versions but varies between runs in 2.53.0, strongly suggesting heap memory reuse after free. The report includes exact reproduction steps and a plausible root cause analysis, highlighting real-world impact on scriptability.
+
+### `receive-report` hook graduates to `seen`
+Karthik Nayak’s three-patch v4 series introducing a `receive-report` hook for `git-receive-pack` was queued in `seen` after resolving all prior feedback, including the hook naming objection (renamed from `report` to `receive-report`) and exit status semantics. The hook enables server-side status filtering for `git-receive-pack`, addressing GitLab’s need for MVCC (multi-version concurrency control). It runs after all ref updates are committed but before the status report is sent, receiving the pkt-line encoded report on stdin and replacing it with its stdout. A non-zero exit status rewrites all ref status lines to `"receive-report hook failed"` and discards the hook’s stdout, matching the behavior of the `pre-receive` hook. The series touches `builtin/receive-pack.c`, `Documentation/githooks.adoc`, `Documentation/git-receive-pack.adoc`, and a new test script `t/t5412-receive-report-hook.sh`.
+
+### Geometric repacking race condition fixes integrated
+A four-patch bugfix series addressing a race condition in Git’s geometric repacking mechanism was integrated into Junio’s `next` branch. The series fixes crashes in `git replay` and missing-object errors in other operations (`git merge-tree`, `git diff`, `git rev-list`) caused by multi-pack-index (MIDX) references to removed packfiles. Jeff King (Peff) provided final endorsements for the core recovery logic in `odb/source-packed.c`, confirming the gating on `OBJECT_INFO_SECOND_READ` and iteration over `m->num_packs + m->num_packs_in_base` is correct and optimal. The series includes thorough test coverage and implements a tri-state return from `midx_fill_entry()` (`MIDX_FILL_MISS`, `MIDX_FILL_HIT`, `MIDX_FILL_OWNER_UNAVAILABLE`) to optimize performance for `QUICK` callers.
+
+### Trace2 hardening series faces architectural questions
+Derrick Stolee’s seven-patch series to eliminate `die()`-triggering helpers from the trace2 API faced deeper architectural questions from Jeff King (Peff), who argued the current approach is a "tip of the iceberg" that may require a ground-up rewrite of trace2. The series replaces banned functions with defensive fallbacks that prioritize process stability over telemetry completeness, but Peff’s review highlighted that indirect calls via helpers like `strbuf` or `json-writer.c` could still crash Git. Elijah Newren agreed to drop patch 3/4 entirely, replacing it with a targeted fix for `git mktree --batch` that removes the `OBJECT_INFO_QUICK` flag while retaining `SKIP_FETCH_OBJECT`. The core fix (patch 4/4) remains ready for merging, having adopted Peff’s tri-state design for `fill_midx_entry()`.
+
+### Negative pathspec handling in `git ls-files` and `git add`
+Diogo Castro posted a bugfix patch addressing a long-standing issue where negative pathspecs (exclusions) were incorrectly affected by the common prefix of positive pathspecs. The bug, introduced in 2013 (ef79b1f870), could cause negative pathspecs to degenerate into empty strings or read out of bounds. For example, `git ls-files -- a/b/c a/b/d !a/b/` would strip `a/b/` from the negative pathspec, leaving an empty string that matches everything. The patch adds a simple guard in `do_match_pathspec()` to skip prefix-stripping for negative pathspecs. Junio C Hamano raised a substantive question about the patch’s design: whether the common prefix should instead be calculated across both positive and negative pathspecs, rather than skipping prefix-stripping for negative pathspecs entirely. The discussion remains open-ended, with the author needing to respond before the patch can proceed.
+
+## In brief
+
+**`git worktree add` ambiguous branch error messages** -- Yoichi NAKAYAMA’s four-patch v9 series improving user-facing error messages for ambiguous remote branch names in `git worktree add`, `git checkout`, and `git switch` was marked ready for `next`. The final patch ensures the `--guess-remote` option in `git worktree add` errors out when multiple matches exist, aligning it with the behavior of `git checkout` and `git switch`.
+
+**`git branch -d` upstream protection** -- Harald Nordgren’s two-patch series proposing to protect local upstream branches from deletion via `git branch -d` faced backward-compatibility concerns from Junio C Hamano. The patch changes the long-established semantics of the `-d` flag, which could break existing workflows. Elijah Newren identified a logical gap: the protection is not transitive, despite documentation claiming it applies to "directly or indirectly" upstream branches.
+
+**`git format-rev` formatting options** -- Kristoffer Haugsbakk’s five-patch v2 series adding `--abbrev`, `--color`, and `--date` options to `git format-rev` was noted as receiving no review feedback since posting. The series brings `git format-rev` closer to parity with `git log` and reuses existing `git log` logic for consistency.
+
+**`git symbolic-ref` test coverage** -- Nikolaus Schuetz’s v3 test patch adding systematic test coverage for `git symbolic-ref`’s exit codes and output behavior when querying a non-symbolic ref remains unresolved. Junio C Hamano objected to "casting wrong behavior into stone" by documenting the current exit code behavior (128 vs. 1) in the man page.
+
+**`git whoami` command proposal** -- Andrew Pleeter’s proposal for a new `git whoami` command to display the current Git identity and signing configuration sparked debate about project scope. Both brian m. carlson and Junio C Hamano expressed skepticism, requesting machine-readable output, removal of `the_repository` usage, support for X.509 signing keys, and justification for why this doesn’t belong in `git var`.
+
+**`git stash` branch-aware design** -- Vladimir Sitnikov’s RFC proposing a branch-aware or worktree-aware stash design to prevent silent interference between worktrees’ stash operations advanced with a reflog-based solution from Phillip Wood. The proposal uses HEAD’s reflog and the first parent of stash commits to identify the most recent stash for a given commit, enabling per-worktree isolation for detached HEAD worktrees without new configuration or ref namespaces.
+
+**`git repo info` path keys** -- K Jayatheerth’s seven-patch v5 series adding seven new path-related keys to the `git repo info` command faced architectural concerns from Junio C Hamano. The series duplicates logic between `git repo info` and `git rev-parse` for keys like `path.cdup`, `path.toplevel`, `path.superproject-root`, and `path.git-prefix`. Junio proposed consolidating shared logic into a new helper library to avoid long-term maintainability issues.
+
+**`git commit --amend` during conflict resolution** -- Elijah Newren’s single-patch bugfix extending Git’s existing protection against `git commit --amend` during conflict resolution to cover `git am`, `git revert`, and all forms of `git rebase` received structural improvement suggestions from Phillip Wood. The patch is well-motivated and addresses a real foot-gun, with clear documentation of the rebase-merge directory files and their roles in distinguishing conflict stops from legitimate amend operations.
+
+**`git worktree add` basename handling** -- René Scharfe’s four-patch v1 series fixing and cleaning up the `worktree_basename()` helper in `git worktree add` was approved by Junio C Hamano pending a commit-message tweak. The series addresses an out-of-bounds read, rejects malformed paths, and trims trailing slashes from derived branch names.
+
+**`http.sslVerifyStatus` for OCSP stapling** -- Grayson Gordon’s v6 patch adding a boolean `http.sslVerifyStatus` option (default `false`) to enable OCSP staple validation via libcurl’s `CURLOPT_SSL_VERIFYSTATUS` is technically complete and ready for `next`. The patch targets a niche but critical security gap: OpenSSL-linked Git binaries (common in FIPS-compliant deployments) currently ignore OCSP staples, leaving revoked certificates unchecked.
+
+**`gitk` AI contribution policy** -- Johannes Sixt’s documentation patch updating `gitk/README.md` to explicitly discourage AI-generated contributions aligned with upstream Git’s AI policy. The patch is uncontroversial, but Weijie Yuan’s earlier policy challenge was retracted.
+
+**`git whatchanged` deprecation feedback** -- Edvard’s user report noted that the deprecation of `git whatchanged` (now requiring `--i-still-use-this`) does not disrupt their workflow, as alternatives like `git log --oneline --name-status` suffice. Kristoffer Haugsbakk sought to clarify what specifically the user values about `whatchanged` (output format vs. command name).
+
+**Outreachy December 2026 cohort** -- Christian Couder’s administrative announcement invited volunteers, project ideas, and feedback on Git’s participation in Outreachy’s December 2026 cohort. Usman Akinyemi, a former Outreachy intern for Git, volunteered to co-mentor again this year.
+
+**Deprecation warning rewording** -- Junio C Hamano’s v2 documentation patch reworded the user-facing deprecation warning in `usage.c` to eliminate misleading language that could imply the Git project might reverse a deprecation decision. The new message is shorter, more direct, and guides users to the breaking changes documentation and mailing list archives.
+
+**`die_for_incompatible_opts()` helper** -- Junio C Hamano’s two-patch refactoring series introducing `die_for_incompatible_opts()`, a varargs helper replacing the fixed-arity `die_for_incompatible_optN()` family, was withdrawn after Junio found the revised design unsatisfactory.
+
+**`dk/use-nsec-runtime` series** -- D. Ben Knoble’s series converting `USE_NSEC` to a runtime option (`core.useNanosec`) is ready for `master`, but Junio C Hamano raised a long-term architectural concern: the new dependency on `repo_config_values()` in `is_racy_stat()` could constrain future submodule support. The series allows users to enable nanosecond precision on supported filesystems without recompiling Git, addressing "racy Git" problems.
+
+**Unified `post-worktree` hook proposed** -- Domen Kožar proposed a unified `post-worktree` hook to address Junio C Hamano’s design objection to the `post-worktree-*` series. The compromise replaces three separate hooks with a single hook using a subcommand-style interface (`add`, `move`, `remove`) and passing all relevant paths and the worktree ID as arguments. Domen argued that a Git-native hook is the only reliable way to notify external tools of worktree lifecycle events triggered by callers outside the tool’s control.
+
+## Looking ahead
+
+The next week is likely to see continued discussion and potential resolution of several key topics:
+
+- **Architectural redesign of built-in command interfaces**: Junio’s proposal to replace `struct repository *` parameters with a `bool has_repo` flag in built-in commands will require careful review and coordination with the broader `the_repository` removal effort. The 8-patch series refactoring `git checkout`, `git switch`, and `git restore` demonstrates the approach and may serve as a template for other built-ins.
+
+- **Use-after-free regression in `git stash show`**: The reported regression in `git stash show` when `--src-prefix` or `--dst-prefix` is used is likely to see a fix posted soon, given its impact on scriptability and production environments. The root cause (dangling pointers in `struct diff_options`) suggests a straightforward fix, but the regression’s presence since Git 2.52.0 may require backporting.
+
+- **Negative pathspec handling**: The design debate over whether negative pathspecs should be treated as absolute or relative to the full tree in `git ls-files` and `git add` remains unresolved. Junio’s alternative approach—calculating the common prefix across both positive and negative pathspecs—may require a new implementation or further discussion.
+
+- **`git history squash` series**: Harald Nordgren’s `git history squash` series is expected to see a v15 reroll incorporating the maintainer’s ruling on OID case-sensitivity. The series is functionally complete and likely to graduate to `next` once the reroll is posted.
+
+- **Trace2 hardening series**: Derrick Stolee’s trace2 hardening series may see a v3 iteration addressing Jeff King’s architectural concerns, potentially dropping patch 3/4 entirely and focusing on the core fix. The discussion may expand to address indirect dependencies or accept the current approach as a pragmatic first step.
